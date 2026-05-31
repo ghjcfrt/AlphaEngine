@@ -38,7 +38,7 @@ async def test_openai_responses_provider_parses_structured_review() -> None:
 
     review = await provider.create_review({"risk_assessment": {"risk_score": 80}})
 
-    assert review.provider == "gpt"
+    assert review.provider == "OpenAI"
     assert review.model == "gpt-test"
     assert review.is_model_generated is True
     assert review.summary == "模型解读"
@@ -56,7 +56,7 @@ async def test_chat_completions_provider_uses_openai_compatible_shape() -> None:
         return httpx.Response(200, json={"choices": [{"message": {"content": MODEL_JSON}}]})
 
     provider = ChatCompletionsAdvisorProvider(
-        name="openai-compatible",
+        name="OpenAI Compatible",
         api_key="test-key",
         model="chat-test",
         base_url="https://models.example.com",
@@ -67,7 +67,7 @@ async def test_chat_completions_provider_uses_openai_compatible_shape() -> None:
 
     review = await provider.create_review({"risk_assessment": {"risk_score": 80}})
 
-    assert review.provider == "openai-compatible"
+    assert review.provider == "OpenAI Compatible"
     assert review.summary == "模型解读"
     await provider.close()
 
@@ -90,7 +90,7 @@ async def test_anthropic_provider_uses_messages_shape() -> None:
 
     review = await provider.create_review({"risk_assessment": {"risk_score": 80}})
 
-    assert review.provider == "claude"
+    assert review.provider == "Anthropic"
     assert review.model == "claude-test"
     await provider.close()
 
@@ -117,7 +117,7 @@ async def test_gemini_provider_uses_generate_content_shape() -> None:
 
     review = await provider.create_review({"risk_assessment": {"risk_score": 80}})
 
-    assert review.provider == "gemini"
+    assert review.provider == "Gemini"
     assert review.model == "gemini-test"
     await provider.close()
 
@@ -125,14 +125,14 @@ async def test_gemini_provider_uses_generate_content_shape() -> None:
 def test_build_provider_selects_deepseek_chat_endpoint() -> None:
     service = build_ai_advisor_service(
         Settings(
-            ai_advisor_provider="openai",
+            ai_advisor_provider="DeepSeek",
             ai_model_family="deepseek",
             openai_api_key="test-key",
         )
     )
 
     assert isinstance(service.provider, ChatCompletionsAdvisorProvider)
-    assert service.provider.name == "deepseek"
+    assert service.provider.name == "DeepSeek"
     assert service.provider.endpoint == "/chat/completions"
 
 
@@ -163,14 +163,14 @@ def test_build_provider_supports_per_agent_model_families() -> None:
         ai_advisor_provider="mock",
         ai_agents={
             "risk_assessment": {
-                "ai_advisor_provider": "openai",
+                "ai_advisor_provider": "Gemini",
                 "ai_model_family": "gemini",
                 "openai_base_url": "https://gemini.example.com",
                 "openai_model": "gemini-risk",
                 "openai_api_key": "risk-key",
             },
             "asset_allocation": {
-                "ai_advisor_provider": "openai",
+                "ai_advisor_provider": "Anthropic",
                 "ai_model_family": "claude",
                 "openai_base_url": "https://claude.example.com",
                 "openai_model": "claude-allocation",

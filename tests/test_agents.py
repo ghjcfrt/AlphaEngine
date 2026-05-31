@@ -54,7 +54,7 @@ async def test_coordinator_builds_plan_with_acp_trace() -> None:
     assert {quote.symbol for quote in response.quotes} >= {"AAPL", "MSFT", "VTI", "BND"}
     assert response.return_analysis.projections
     assert response.compliance_review.warnings
-    assert response.ai_review.provider == "mock-ai"
+    assert response.ai_review.provider == "Mock AI"
     assert response.ai_review.is_model_generated is False
     assert response.acp_trace is not None
     assert len(response.acp_trace) == 12

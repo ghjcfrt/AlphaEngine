@@ -6,6 +6,12 @@ from uuid import uuid4
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.acp.message import ACPMessage
+from app.core.config import (
+    AIModelFamily,
+    AIProvider,
+    normalize_ai_model_family,
+    normalize_ai_provider,
+)
 
 
 def utc_now() -> datetime:
@@ -179,8 +185,8 @@ class InvestmentPlanResponse(BaseModel):
 
 class AgentAISettingsResponse(BaseModel):
     label: str
-    ai_advisor_provider: Literal["auto", "openai", "mock", "disabled"]
-    ai_model_family: Literal["gpt", "openai_compatible", "gemini", "claude", "deepseek"]
+    ai_advisor_provider: AIProvider
+    ai_model_family: AIModelFamily
     ai_runtime_provider: str
     ai_runtime_model: str | None
     ai_is_model_generated: bool
@@ -191,8 +197,8 @@ class AgentAISettingsResponse(BaseModel):
 
 class RuntimeSettingsResponse(BaseModel):
     market_data_provider: Literal["hybrid", "finnhub", "polygon", "eastmoney", "mock"]
-    ai_advisor_provider: Literal["auto", "openai", "mock", "disabled"]
-    ai_model_family: Literal["gpt", "openai_compatible", "gemini", "claude", "deepseek"]
+    ai_advisor_provider: AIProvider
+    ai_model_family: AIModelFamily
     ai_runtime_provider: str
     ai_runtime_model: str | None
     ai_is_model_generated: bool
@@ -208,22 +214,28 @@ class RuntimeSettingsResponse(BaseModel):
 
 
 class AgentAISettingsUpdate(BaseModel):
-    ai_advisor_provider: Literal["auto", "openai", "mock", "disabled"] | None = None
-    ai_model_family: (
-        Literal["gpt", "openai_compatible", "gemini", "claude", "deepseek"] | None
-    ) = None
+    ai_advisor_provider: AIProvider | None = None
+    ai_model_family: AIModelFamily | None = None
     openai_base_url: str | None = None
     openai_model: str | None = None
     openai_api_key: str | None = None
     clear_openai_api_key: bool = False
 
+    @field_validator("ai_advisor_provider", mode="before")
+    @classmethod
+    def normalize_provider(cls, value: object) -> object:
+        return normalize_ai_provider(value)
+
+    @field_validator("ai_model_family", mode="before")
+    @classmethod
+    def normalize_model_family(cls, value: object) -> object:
+        return normalize_ai_model_family(value)
+
 
 class RuntimeSettingsUpdate(BaseModel):
     market_data_provider: Literal["hybrid", "finnhub", "polygon", "eastmoney", "mock"] | None = None
-    ai_advisor_provider: Literal["auto", "openai", "mock", "disabled"] | None = None
-    ai_model_family: (
-        Literal["gpt", "openai_compatible", "gemini", "claude", "deepseek"] | None
-    ) = None
+    ai_advisor_provider: AIProvider | None = None
+    ai_model_family: AIModelFamily | None = None
     openai_base_url: str | None = None
     openai_model: str | None = None
     openai_api_key: str | None = None
@@ -235,3 +247,13 @@ class RuntimeSettingsUpdate(BaseModel):
     request_timeout_seconds: float | None = Field(default=None, gt=0)
     quote_cache_ttl_seconds: int | None = Field(default=None, ge=0)
     ai_agents: dict[str, AgentAISettingsUpdate] | None = None
+
+    @field_validator("ai_advisor_provider", mode="before")
+    @classmethod
+    def normalize_provider(cls, value: object) -> object:
+        return normalize_ai_provider(value)
+
+    @field_validator("ai_model_family", mode="before")
+    @classmethod
+    def normalize_model_family(cls, value: object) -> object:
+        return normalize_ai_model_family(value)

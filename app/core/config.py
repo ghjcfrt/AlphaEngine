@@ -1,13 +1,66 @@
 from functools import lru_cache
 from typing import Any, Literal
 
-from pydantic import AliasChoices, BaseModel, Field
+from pydantic import AliasChoices, BaseModel, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.core.local_config import load_local_config
 
-AIProvider = Literal["auto", "openai", "mock", "disabled"]
+AIProvider = Literal[
+    "auto",
+    "openai",
+    "openai_compatible",
+    "gemini",
+    "anthropic",
+    "deepseek",
+    "mock",
+    "disabled",
+]
 AIModelFamily = Literal["gpt", "openai_compatible", "gemini", "claude", "deepseek"]
+
+AI_PROVIDER_TO_FAMILY: dict[str, AIModelFamily] = {
+    "openai": "gpt",
+    "openai_compatible": "openai_compatible",
+    "gemini": "gemini",
+    "anthropic": "claude",
+    "deepseek": "deepseek",
+}
+AI_FAMILY_TO_PROVIDER: dict[str, AIProvider] = {
+    "gpt": "openai",
+    "openai_compatible": "openai_compatible",
+    "gemini": "gemini",
+    "claude": "anthropic",
+    "deepseek": "deepseek",
+}
+AI_PROVIDER_ALIASES = {
+    "openai": "openai",
+    "openai compatible": "openai_compatible",
+    "openai-compatible": "openai_compatible",
+    "openai_compatible": "openai_compatible",
+    "gemini": "gemini",
+    "google": "gemini",
+    "anthropic": "anthropic",
+    "claude": "anthropic",
+    "deepseek": "deepseek",
+    "deep seek": "deepseek",
+    "mock": "mock",
+    "mock-ai": "mock",
+    "mock ai": "mock",
+    "disabled": "disabled",
+    "disable": "disabled",
+    "off": "disabled",
+    "auto": "auto",
+}
+AI_PROVIDER_LABELS = {
+    "auto": "Auto",
+    "openai": "OpenAI",
+    "openai_compatible": "OpenAI Compatible",
+    "gemini": "Gemini",
+    "anthropic": "Anthropic",
+    "deepseek": "DeepSeek",
+    "mock": "Mock AI",
+    "disabled": "Disabled",
+}
 
 AI_AGENT_LABELS = {
     "risk_assessment": "RiskAssessmentAgent",
@@ -19,11 +72,29 @@ AI_AGENT_LABELS = {
 
 
 class AIModelSettings(BaseModel):
-    ai_advisor_provider: AIProvider = "auto"
+    ai_advisor_provider: AIProvider = "mock"
     ai_model_family: AIModelFamily = "gpt"
     openai_api_key: str | None = None
     openai_base_url: str = "https://api.openai.com"
     openai_model: str = "gpt-5.4-mini"
+
+    @field_validator("ai_advisor_provider", mode="before")
+    @classmethod
+    def normalize_ai_provider(cls, value: object) -> object:
+        return normalize_ai_provider(value)
+
+    @field_validator("ai_model_family", mode="before")
+    @classmethod
+    def normalize_ai_model_family(cls, value: object) -> object:
+        return normalize_ai_model_family(value)
+
+    @model_validator(mode="after")
+    def align_provider_and_family(self) -> "AIModelSettings":
+        self.ai_advisor_provider, self.ai_model_family = align_ai_provider_and_family(
+            self.ai_advisor_provider,
+            self.ai_model_family,
+        )
+        return self
 
 
 class Settings(BaseSettings):
@@ -33,7 +104,7 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("ALPHA_MARKET_DATA_PROVIDER", "MARKET_DATA_PROVIDER"),
     )
     ai_advisor_provider: AIProvider = Field(
-        default="auto",
+        default="mock",
         validation_alias=AliasChoices("ALPHA_AI_ADVISOR_PROVIDER", "AI_ADVISOR_PROVIDER"),
     )
     openai_api_key: str | None = Field(
@@ -72,6 +143,24 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore", populate_by_name=True)
 
+    @field_validator("ai_advisor_provider", mode="before")
+    @classmethod
+    def normalize_ai_provider(cls, value: object) -> object:
+        return normalize_ai_provider(value)
+
+    @field_validator("ai_model_family", mode="before")
+    @classmethod
+    def normalize_ai_model_family(cls, value: object) -> object:
+        return normalize_ai_model_family(value)
+
+    @model_validator(mode="after")
+    def align_provider_and_family(self) -> "Settings":
+        self.ai_advisor_provider, self.ai_model_family = align_ai_provider_and_family(
+            self.ai_advisor_provider,
+            self.ai_model_family,
+        )
+        return self
+
 
 def resolve_ai_model_settings(settings: Settings, agent_key: str | None = None) -> AIModelSettings:
     base = AIModelSettings(
@@ -87,6 +176,35 @@ def resolve_ai_model_settings(settings: Settings, agent_key: str | None = None) 
     if not isinstance(override, dict):
         return base
     return AIModelSettings.model_validate(base.model_dump() | override)
+
+
+def normalize_ai_provider(value: object) -> object:
+    if not isinstance(value, str):
+        return value
+    normalized = value.strip().lower().replace("_", " ")
+    return AI_PROVIDER_ALIASES.get(normalized, value.strip())
+
+
+def normalize_ai_model_family(value: object) -> object:
+    if not isinstance(value, str):
+        return value
+    normalized = value.strip().lower().replace("-", "_").replace(" ", "_")
+    if normalized == "anthropic":
+        return "claude"
+    if normalized == "openai":
+        return "gpt"
+    return normalized
+
+
+def align_ai_provider_and_family(
+    provider: AIProvider,
+    family: AIModelFamily,
+) -> tuple[AIProvider, AIModelFamily]:
+    if provider == "openai":
+        return AI_FAMILY_TO_PROVIDER.get(family, "openai"), family
+    if provider in AI_PROVIDER_TO_FAMILY:
+        return provider, AI_PROVIDER_TO_FAMILY[provider]
+    return provider, family
 
 
 @lru_cache

@@ -313,37 +313,43 @@
             <div class="ai-agent-grid" id="aiAgentSettings"></div>
           </div>
 
-          <div class="settings-section">
+          <div class="settings-section market-settings-section">
             <div class="section-heading">
               <h2>MarketDataAgent</h2>
               <span>行情 API Agent</span>
             </div>
-            <label>
-              <span>行情源</span>
-              <select name="market_data_provider">
-                <option value="hybrid">hybrid</option>
-                <option value="finnhub">finnhub</option>
-                <option value="polygon">polygon</option>
-                <option value="eastmoney">eastmoney</option>
-                <option value="mock">mock</option>
-              </select>
-            </label>
-            <label>
-              <span>Finnhub API Key</span>
-              <input name="finnhub_api_key" type="password" autocomplete="off" placeholder="留空则不修改" />
-            </label>
-            <label class="trace-toggle">
-              <input name="clear_finnhub_api_key" type="checkbox" />
-              <span id="finnhubKeyState">清除已保存的 Finnhub API Key</span>
-            </label>
-            <label>
-              <span>Polygon API Key</span>
-              <input name="polygon_api_key" type="password" autocomplete="off" placeholder="留空则不修改" />
-            </label>
-            <label class="trace-toggle">
-              <input name="clear_polygon_api_key" type="checkbox" />
-              <span id="polygonKeyState">清除已保存的 Polygon API Key</span>
-            </label>
+            <div class="market-settings-fields">
+              <label class="market-provider-field">
+                <span>行情源</span>
+                <select name="market_data_provider">
+                  <option value="hybrid">hybrid</option>
+                  <option value="finnhub">finnhub</option>
+                  <option value="polygon">polygon</option>
+                  <option value="eastmoney">eastmoney</option>
+                  <option value="mock">mock</option>
+                </select>
+              </label>
+              <div class="market-key-field">
+                <label>
+                  <span>Finnhub API Key</span>
+                  <input name="finnhub_api_key" type="password" autocomplete="off" placeholder="留空则不修改" />
+                </label>
+                <label class="trace-toggle key-state-toggle">
+                  <input name="clear_finnhub_api_key" type="checkbox" />
+                  <span id="finnhubKeyState">清除已保存的 Finnhub API Key</span>
+                </label>
+              </div>
+              <div class="market-key-field">
+                <label>
+                  <span>Polygon API Key</span>
+                  <input name="polygon_api_key" type="password" autocomplete="off" placeholder="留空则不修改" />
+                </label>
+                <label class="trace-toggle key-state-toggle">
+                  <input name="clear_polygon_api_key" type="checkbox" />
+                  <span id="polygonKeyState">清除已保存的 Polygon API Key</span>
+                </label>
+              </div>
+            </div>
           </div>
         </section>
 

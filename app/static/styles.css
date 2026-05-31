@@ -925,6 +925,40 @@ td {
   margin-bottom: 0;
 }
 
+.market-settings-section {
+  align-content: start;
+}
+
+.market-settings-fields {
+  display: grid;
+  gap: 14px;
+}
+
+.market-provider-field {
+  max-width: 260px;
+}
+
+.market-key-field {
+  display: grid;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.key-state-toggle {
+  min-height: 38px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.key-state-toggle span {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
 .ai-agent-grid {
   display: grid;
   gap: 10px;

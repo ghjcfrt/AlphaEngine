@@ -4,7 +4,12 @@ from typing import Any, Protocol
 import httpx
 from pydantic import BaseModel
 
-from app.core.config import AIModelSettings, Settings, resolve_ai_model_settings
+from app.core.config import (
+    AIModelSettings,
+    AI_PROVIDER_LABELS,
+    Settings,
+    resolve_ai_model_settings,
+)
 from app.domain.schemas import AIAdvisorReview
 
 SYSTEM_INSTRUCTIONS = (
@@ -54,7 +59,7 @@ class AIAdvisorProvider(Protocol):
 
 
 class MockAIAdvisorProvider:
-    name = "mock-ai"
+    name = "Mock AI"
     model = None
     is_model_generated = False
 
@@ -112,7 +117,7 @@ class MockAIAdvisorProvider:
 
 
 class DisabledAIAdvisorProvider:
-    name = "disabled"
+    name = "Disabled"
     model = None
     is_model_generated = False
 
@@ -136,7 +141,9 @@ class DisabledAIAdvisorProvider:
             is_model_generated=self.is_model_generated,
             summary="AI 解读已关闭。",
             key_insights=["当前仅返回规则型风险评估、资产配置、收益情景和合规提示。"],
-            action_items=["设置 ALPHA_AI_ADVISOR_PROVIDER=auto 或 openai 后可启用 AI 解读。"],
+            action_items=[
+                "设置 ALPHA_AI_ADVISOR_PROVIDER=OpenAI、Gemini、Anthropic 或 DeepSeek 后可启用 AI 解读。"
+            ],
             limitations=["未调用大模型。"],
         )
 
@@ -145,7 +152,7 @@ class DisabledAIAdvisorProvider:
 
 
 class OpenAIResponsesAdvisorProvider:
-    name = "gpt"
+    name = "OpenAI"
     is_model_generated = True
 
     def __init__(
@@ -260,7 +267,7 @@ class ChatCompletionsAdvisorProvider:
 
 
 class AnthropicMessagesAdvisorProvider:
-    name = "claude"
+    name = "Anthropic"
     is_model_generated = True
 
     def __init__(
@@ -319,7 +326,7 @@ class AnthropicMessagesAdvisorProvider:
 
 
 class GeminiGenerateContentAdvisorProvider:
-    name = "gemini"
+    name = "Gemini"
     is_model_generated = True
 
     def __init__(
@@ -430,7 +437,8 @@ def build_ai_advisor_service(settings: Settings, agent_key: str | None = None) -
         provider = MockAIAdvisorProvider()
     else:
         if not model_api_key:
-            raise AIAdvisorError("AI 提供方为 openai 时必须配置模型 API Key。")
+            provider_label = AI_PROVIDER_LABELS.get(provider_name, provider_name)
+            raise AIAdvisorError(f"AI 提供方为 {provider_label} 时必须配置模型 API Key。")
         provider = _build_model_provider(
             model_settings,
             api_key=model_api_key,
@@ -469,7 +477,7 @@ def _build_model_provider(
             timeout_seconds=timeout_seconds,
         )
     endpoint = "/chat/completions" if family == "deepseek" else "/v1/chat/completions"
-    provider_name = "deepseek" if family == "deepseek" else "openai-compatible"
+    provider_name = "DeepSeek" if family == "deepseek" else "OpenAI Compatible"
     return ChatCompletionsAdvisorProvider(
         name=provider_name,
         api_key=api_key,

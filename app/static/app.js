@@ -15,6 +15,40 @@ const riskLabels = {
 };
 
 const fieldLabels = ["亏损承受", "长期持有", "波动接受", "成长偏好", "经验信心"];
+const providerToFamily = {
+  openai: "gpt",
+  openai_compatible: "openai_compatible",
+  gemini: "gemini",
+  anthropic: "claude",
+  deepseek: "deepseek",
+};
+const familyToProvider = {
+  gpt: "openai",
+  openai_compatible: "openai_compatible",
+  gemini: "gemini",
+  claude: "anthropic",
+  deepseek: "deepseek",
+};
+const aiProviderLabels = {
+  auto: "Auto",
+  openai: "OpenAI",
+  openai_compatible: "OpenAI Compatible",
+  gemini: "Gemini",
+  anthropic: "Anthropic",
+  claude: "Anthropic",
+  deepseek: "DeepSeek",
+  mock: "Mock AI",
+  mock_ai: "Mock AI",
+  disabled: "Disabled",
+  gpt: "OpenAI",
+};
+const aiFamilyLabels = {
+  gpt: "OpenAI Responses",
+  openai_compatible: "OpenAI Chat Compatible",
+  gemini: "Gemini",
+  claude: "Anthropic Claude",
+  deepseek: "DeepSeek",
+};
 const familyHints = {
   gpt: { url: "https://api.openai.com", model: "gpt-5.4-mini" },
   openai_compatible: { url: "https://api.openai.com", model: "gpt-5.4-mini" },
@@ -55,13 +89,33 @@ function formatAiRuntime(source) {
   if (source.ai_agents) {
     const agents = Object.values(source.ai_agents);
     const enabled = agents.filter((agent) => agent.ai_is_model_generated).length;
-    const families = [...new Set(agents.map((agent) => agent.ai_model_family))].join(" / ");
+    const families = [...new Set(agents.map((agent) => formatAiFamily(agent.ai_model_family)))].join(
+      " / "
+    );
     return `${enabled}/${agents.length} 个 AI Agent · ${families || "未配置"}`;
   }
-  const provider = source.ai_runtime_provider || source.ai_advisor_provider || "-";
+  const provider = formatAiProvider(source.ai_runtime_provider || source.ai_advisor_provider || "-");
   const model = source.ai_runtime_model ? ` · ${source.ai_runtime_model}` : "";
   const mode = source.ai_is_model_generated ? "模型生成" : "规则/模拟";
   return `${provider}${model} · ${mode}`;
+}
+
+function normalizedAiKey(value) {
+  return String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replaceAll("-", "_")
+    .replaceAll(" ", "_");
+}
+
+function formatAiProvider(value) {
+  const key = normalizedAiKey(value);
+  return aiProviderLabels[key] || value || "-";
+}
+
+function formatAiFamily(value) {
+  const key = normalizedAiKey(value);
+  return aiFamilyLabels[key] || value || "-";
 }
 
 function agentRole(agentId) {
@@ -244,13 +298,20 @@ function renderAiAgentSettings(aiAgents) {
       const title = config?.label || agentKey;
       const role = aiAgentRoleNames[agentKey] || "AI";
       const mode = config?.ai_is_model_generated ? "模型生成" : "规则/模拟";
+      const runtimeProvider = formatAiProvider(config?.ai_runtime_provider);
       const runtime = config?.ai_runtime_model
-        ? `${config.ai_runtime_provider} · ${config.ai_runtime_model}`
-        : config?.ai_runtime_provider || "-";
+        ? `${runtimeProvider} · ${config.ai_runtime_model}`
+        : runtimeProvider || "-";
       const keyState = config?.has_openai_api_key
         ? "已保存 API Key，勾选后清除"
         : "未保存 API Key";
-      const provider = config?.ai_advisor_provider || "auto";
+      const savedProvider = normalizedAiKey(config?.ai_advisor_provider);
+      const provider =
+        savedProvider && savedProvider !== "auto"
+          ? savedProvider
+          : config?.has_openai_api_key
+            ? familyToProvider[normalizedAiKey(config?.ai_model_family)] || "openai"
+            : "mock";
       const family = config?.ai_model_family || "gpt";
       const hints = familyHints[family] || familyHints.gpt;
       return `
@@ -296,13 +357,31 @@ function renderAiAgentSettings(aiAgents) {
     })
     .join("");
   container.querySelectorAll('[data-ai-field="ai_model_family"]').forEach((select) => {
-    select.addEventListener("change", () => applyFamilyHints(select.closest(".ai-agent-card")));
+    select.addEventListener("change", () => {
+      const card = select.closest(".ai-agent-card");
+      syncProviderFromFamily(card);
+      applyFamilyHints(card);
+    });
+  });
+  container.querySelectorAll('[data-ai-field="ai_advisor_provider"]').forEach((select) => {
+    select.addEventListener("change", () => applyProviderDefaults(select.closest(".ai-agent-card")));
   });
 }
 
 function aiProviderOptions(selected) {
-  return ["auto", "openai", "mock", "disabled"]
-    .map((value) => `<option value="${value}" ${value === selected ? "selected" : ""}>${value}</option>`)
+  return [
+    ["openai", "OpenAI"],
+    ["openai_compatible", "OpenAI Compatible"],
+    ["gemini", "Gemini"],
+    ["anthropic", "Anthropic"],
+    ["deepseek", "DeepSeek"],
+    ["mock", "Mock AI"],
+    ["disabled", "Disabled"],
+  ]
+    .map(
+      ([value, label]) =>
+        `<option value="${value}" ${value === selected ? "selected" : ""}>${label}</option>`
+    )
     .join("");
 }
 
@@ -311,7 +390,7 @@ function aiFamilyOptions(selected) {
     ["gpt", "GPT / OpenAI Responses"],
     ["openai_compatible", "OpenAI Chat 兼容"],
     ["gemini", "Gemini"],
-    ["claude", "Claude / Anthropic"],
+    ["claude", "Anthropic / Claude"],
     ["deepseek", "DeepSeek"],
   ]
     .map(
@@ -447,6 +526,23 @@ function applyFamilyHints(card) {
   card.querySelector('[data-ai-field="openai_model"]').placeholder = hints.model;
 }
 
+function applyProviderDefaults(card) {
+  const provider = fieldValue(card, "ai_advisor_provider");
+  const family = providerToFamily[provider];
+  if (family) {
+    card.querySelector('[data-ai-field="ai_model_family"]').value = family;
+  }
+  applyFamilyHints(card);
+}
+
+function syncProviderFromFamily(card) {
+  const family = fieldValue(card, "ai_model_family");
+  const provider = familyToProvider[family];
+  if (provider) {
+    card.querySelector('[data-ai-field="ai_advisor_provider"]').value = provider;
+  }
+}
+
 async function submitPlan(event) {
   event.preventDefault();
   setLoading(true);
@@ -561,7 +657,7 @@ function renderTabs() {
       <div class="ai-review">
         <div class="ai-summary">
           <strong>${review.is_model_generated ? "模型生成" : "本地模拟"}</strong>
-          <span>${escapeHtml(review.provider)}${review.model ? ` · ${escapeHtml(review.model)}` : ""}</span>
+          <span>${escapeHtml(formatAiProvider(review.provider))}${review.model ? ` · ${escapeHtml(review.model)}` : ""}</span>
           <p>${escapeHtml(review.summary)}</p>
         </div>
         ${listMarkup([

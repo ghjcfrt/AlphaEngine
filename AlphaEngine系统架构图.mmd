@@ -1,0 +1,62 @@
+flowchart TD
+    user["用户<br/>录入投资人画像、风险问卷、关注标的、已有持仓"]
+    ui["AlphaEngine 网页工作台<br/>表单录入、结果展示、配置管理"]
+    api["后端接口服务<br/>计划生成、行情查询、运行配置、协作链路查询"]
+    coordinator["总控编排智能体<br/>任务拆分、顺序调度、生成追踪编号"]
+    bus["智能体消息总线<br/>记录请求 / 响应消息，形成审计链路"]
+
+    user --> ui --> api --> coordinator
+    coordinator --> bus
+
+    subgraph agents["多智能体协作层"]
+        risk["风险画像智能体<br/>风险评分、风险等级、权益上限"]
+        allocation["资产配置智能体<br/>资产配置、风险预算、再平衡策略"]
+        market["行情数据智能体<br/>实时行情、A股/美股数据源路由"]
+        returns["收益情景智能体<br/>收益假设、波动估算、多期限情景"]
+        compliance["合规复核智能体<br/>适当性复核、风险披露、人工复核触发"]
+        advisor["总结解读智能体<br/>中文总结、关键洞察、行动清单"]
+    end
+
+    coordinator --> risk
+    risk --> allocation
+    allocation --> market
+    market --> returns
+    returns --> compliance
+    compliance --> advisor
+
+    subgraph services["服务与数据支撑层"]
+        market_service["行情数据服务<br/>混合数据源 / Finnhub / Polygon / 东方财富 / 模拟数据"]
+        ai_service["大模型服务适配层<br/>OpenAI / Gemini / Anthropic / DeepSeek / 兼容接口"]
+        schemas["领域数据模型<br/>请求、风险、配置、行情、收益、合规、AI解读"]
+        config["本地运行配置<br/>本地配置文件、环境变量、密钥状态"]
+        tests["自动化测试<br/>智能体协作、服务适配、设置保存、前端静态资源"]
+    end
+
+    market --> market_service
+    risk --> ai_service
+    allocation --> ai_service
+    returns --> ai_service
+    compliance --> ai_service
+    advisor --> ai_service
+    api --> schemas
+    api --> config
+    coordinator --> schemas
+    bus --> schemas
+    tests -.验证.-> api
+    tests -.验证.-> agents
+
+    output["投资计划输出<br/>风险评估 + 资产配置 + 行情快照 + 收益情景 + 合规复核 + 中文解读"]
+    advisor --> output
+    bus --> output
+
+    classDef userLayer fill:#eef5ff,stroke:#2f6fbb,stroke-width:1.5px,color:#1d2523;
+    classDef apiLayer fill:#eefaf4,stroke:#0d7c66,stroke-width:1.5px,color:#1d2523;
+    classDef agentLayer fill:#f4f8ff,stroke:#2f6fbb,stroke-width:1.5px,color:#1d2523;
+    classDef serviceLayer fill:#f8f4ff,stroke:#7a5cbd,stroke-width:1.5px,color:#1d2523;
+    classDef outputLayer fill:#fff7e8,stroke:#bb7a14,stroke-width:1.5px,color:#1d2523;
+
+    class user userLayer;
+    class ui,api,coordinator,bus apiLayer;
+    class risk,allocation,market,returns,compliance,advisor agentLayer;
+    class market_service,ai_service,schemas,config,tests serviceLayer;
+    class output outputLayer;
