@@ -1,1 +1,1 @@
-"""Domain schemas for investment planning."""
+"""投资规划领域模型。"""

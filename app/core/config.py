@@ -1,10 +1,29 @@
 from functools import lru_cache
-from typing import Literal
+from typing import Any, Literal
 
-from pydantic import AliasChoices, Field
+from pydantic import AliasChoices, BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.core.local_config import load_local_config
+
+AIProvider = Literal["auto", "openai", "mock", "disabled"]
+AIModelFamily = Literal["gpt", "openai_compatible", "gemini", "claude", "deepseek"]
+
+AI_AGENT_LABELS = {
+    "risk_assessment": "RiskAssessmentAgent",
+    "asset_allocation": "AssetAllocationAgent",
+    "return_analysis": "ReturnAnalysisAgent",
+    "compliance_review": "ComplianceAgent",
+    "ai_advisor": "AIAdvisorAgent",
+}
+
+
+class AIModelSettings(BaseModel):
+    ai_advisor_provider: AIProvider = "auto"
+    ai_model_family: AIModelFamily = "gpt"
+    openai_api_key: str | None = None
+    openai_base_url: str = "https://api.openai.com"
+    openai_model: str = "gpt-5.4-mini"
 
 
 class Settings(BaseSettings):
@@ -13,7 +32,7 @@ class Settings(BaseSettings):
         default="hybrid",
         validation_alias=AliasChoices("ALPHA_MARKET_DATA_PROVIDER", "MARKET_DATA_PROVIDER"),
     )
-    ai_advisor_provider: Literal["auto", "openai", "mock", "disabled"] = Field(
+    ai_advisor_provider: AIProvider = Field(
         default="auto",
         validation_alias=AliasChoices("ALPHA_AI_ADVISOR_PROVIDER", "AI_ADVISOR_PROVIDER"),
     )
@@ -21,7 +40,7 @@ class Settings(BaseSettings):
         default=None,
         validation_alias=AliasChoices("ALPHA_OPENAI_API_KEY", "OPENAI_API_KEY"),
     )
-    ai_model_family: Literal["gpt", "openai_compatible", "gemini", "claude", "deepseek"] = Field(
+    ai_model_family: AIModelFamily = Field(
         default="gpt",
         validation_alias=AliasChoices("ALPHA_AI_MODEL_FAMILY", "AI_MODEL_FAMILY"),
     )
@@ -49,8 +68,25 @@ class Settings(BaseSettings):
         default=2,
         validation_alias=AliasChoices("ALPHA_QUOTE_CACHE_TTL_SECONDS", "QUOTE_CACHE_TTL_SECONDS"),
     )
+    ai_agents: dict[str, dict[str, Any]] = Field(default_factory=dict)
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore", populate_by_name=True)
+
+
+def resolve_ai_model_settings(settings: Settings, agent_key: str | None = None) -> AIModelSettings:
+    base = AIModelSettings(
+        ai_advisor_provider=settings.ai_advisor_provider,
+        ai_model_family=settings.ai_model_family,
+        openai_api_key=settings.openai_api_key,
+        openai_base_url=settings.openai_base_url,
+        openai_model=settings.openai_model,
+    )
+    if not agent_key:
+        return base
+    override = settings.ai_agents.get(agent_key)
+    if not isinstance(override, dict):
+        return base
+    return AIModelSettings.model_validate(base.model_dump() | override)
 
 
 @lru_cache

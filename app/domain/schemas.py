@@ -177,6 +177,18 @@ class InvestmentPlanResponse(BaseModel):
     acp_trace: list[ACPMessage] | None = None
 
 
+class AgentAISettingsResponse(BaseModel):
+    label: str
+    ai_advisor_provider: Literal["auto", "openai", "mock", "disabled"]
+    ai_model_family: Literal["gpt", "openai_compatible", "gemini", "claude", "deepseek"]
+    ai_runtime_provider: str
+    ai_runtime_model: str | None
+    ai_is_model_generated: bool
+    openai_base_url: str
+    openai_model: str
+    has_openai_api_key: bool
+
+
 class RuntimeSettingsResponse(BaseModel):
     market_data_provider: Literal["hybrid", "finnhub", "polygon", "eastmoney", "mock"]
     ai_advisor_provider: Literal["auto", "openai", "mock", "disabled"]
@@ -192,6 +204,18 @@ class RuntimeSettingsResponse(BaseModel):
     has_finnhub_api_key: bool
     has_polygon_api_key: bool
     local_config_path: str
+    ai_agents: dict[str, AgentAISettingsResponse]
+
+
+class AgentAISettingsUpdate(BaseModel):
+    ai_advisor_provider: Literal["auto", "openai", "mock", "disabled"] | None = None
+    ai_model_family: (
+        Literal["gpt", "openai_compatible", "gemini", "claude", "deepseek"] | None
+    ) = None
+    openai_base_url: str | None = None
+    openai_model: str | None = None
+    openai_api_key: str | None = None
+    clear_openai_api_key: bool = False
 
 
 class RuntimeSettingsUpdate(BaseModel):
@@ -210,3 +234,4 @@ class RuntimeSettingsUpdate(BaseModel):
     clear_polygon_api_key: bool = False
     request_timeout_seconds: float | None = Field(default=None, gt=0)
     quote_cache_ttl_seconds: int | None = Field(default=None, ge=0)
+    ai_agents: dict[str, AgentAISettingsUpdate] | None = None

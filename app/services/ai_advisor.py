@@ -4,7 +4,7 @@ from typing import Any, Protocol
 import httpx
 from pydantic import BaseModel
 
-from app.core.config import Settings
+from app.core.config import AIModelSettings, Settings, resolve_ai_model_settings
 from app.domain.schemas import AIAdvisorReview
 
 SYSTEM_INSTRUCTIONS = (
@@ -420,21 +420,30 @@ class AIAdvisorService:
         await self.provider.close()
 
 
-def build_ai_advisor_service(settings: Settings) -> AIAdvisorService:
-    provider_name = settings.ai_advisor_provider
-    model_api_key = _usable_api_key(settings.openai_api_key)
+def build_ai_advisor_service(settings: Settings, agent_key: str | None = None) -> AIAdvisorService:
+    model_settings = resolve_ai_model_settings(settings, agent_key)
+    provider_name = model_settings.ai_advisor_provider
+    model_api_key = _usable_api_key(model_settings.openai_api_key)
     if provider_name == "disabled":
         provider: AIAdvisorProvider = DisabledAIAdvisorProvider()
     elif provider_name == "mock" or (provider_name == "auto" and not model_api_key):
         provider = MockAIAdvisorProvider()
     else:
         if not model_api_key:
-            raise AIAdvisorError("模型 API Key is required when AI advisor provider is openai.")
-        provider = _build_model_provider(settings, model_api_key)
+            raise AIAdvisorError("AI 提供方为 openai 时必须配置模型 API Key。")
+        provider = _build_model_provider(
+            model_settings,
+            api_key=model_api_key,
+            timeout_seconds=settings.request_timeout_seconds,
+        )
     return AIAdvisorService(provider)
 
 
-def _build_model_provider(settings: Settings, api_key: str) -> AIAdvisorProvider:
+def _build_model_provider(
+    settings: AIModelSettings,
+    api_key: str,
+    timeout_seconds: float,
+) -> AIAdvisorProvider:
     family = settings.ai_model_family
     model = _model_for_family(settings)
     base_url = _required_base_url(settings.openai_base_url)
@@ -443,21 +452,21 @@ def _build_model_provider(settings: Settings, api_key: str) -> AIAdvisorProvider
             api_key=api_key,
             model=model,
             base_url=base_url,
-            timeout_seconds=settings.request_timeout_seconds,
+            timeout_seconds=timeout_seconds,
         )
     if family == "gemini":
         return GeminiGenerateContentAdvisorProvider(
             api_key=api_key,
             model=model,
             base_url=base_url,
-            timeout_seconds=settings.request_timeout_seconds,
+            timeout_seconds=timeout_seconds,
         )
     if family == "claude":
         return AnthropicMessagesAdvisorProvider(
             api_key=api_key,
             model=model,
             base_url=base_url,
-            timeout_seconds=settings.request_timeout_seconds,
+            timeout_seconds=timeout_seconds,
         )
     endpoint = "/chat/completions" if family == "deepseek" else "/v1/chat/completions"
     provider_name = "deepseek" if family == "deepseek" else "openai-compatible"
@@ -467,11 +476,11 @@ def _build_model_provider(settings: Settings, api_key: str) -> AIAdvisorProvider
         model=model,
         base_url=base_url,
         endpoint=endpoint,
-        timeout_seconds=settings.request_timeout_seconds,
+        timeout_seconds=timeout_seconds,
     )
 
 
-def _model_for_family(settings: Settings) -> str:
+def _model_for_family(settings: AIModelSettings) -> str:
     family = settings.ai_model_family
     model = settings.openai_model.strip()
     if family in {"gpt", "openai_compatible"}:

@@ -40,6 +40,8 @@ def test_runtime_settings_are_saved_locally(monkeypatch, tmp_path) -> None:
         assert payload["ai_runtime_provider"] == "mock-ai"
         assert payload["ai_runtime_model"] is None
         assert payload["ai_is_model_generated"] is False
+        assert payload["ai_agents"]["risk_assessment"]["ai_model_family"] == "gemini"
+        assert payload["ai_agents"]["risk_assessment"]["ai_runtime_provider"] == "mock-ai"
         assert payload["has_openai_api_key"] is True
         assert payload["has_finnhub_api_key"] is True
 
@@ -48,6 +50,7 @@ def test_runtime_settings_are_saved_locally(monkeypatch, tmp_path) -> None:
         assert health["ai_advisor_provider"] == "mock"
         assert health["ai_runtime_provider"] == "mock-ai"
         assert health["ai_is_model_generated"] is False
+        assert health["ai_agents"]["ai_advisor"]["ai_runtime_provider"] == "mock-ai"
 
     saved = json.loads(config_path.read_text(encoding="utf-8"))
     assert saved["openai_api_key"] == "test-openai-key"
@@ -79,3 +82,73 @@ def test_runtime_settings_can_clear_saved_key(monkeypatch, tmp_path) -> None:
     assert response.status_code == 200
     assert response.json()["has_openai_api_key"] is False
     assert "openai_api_key" not in json.loads(config_path.read_text(encoding="utf-8"))
+
+
+def test_runtime_settings_support_multiple_ai_agent_families(monkeypatch, tmp_path) -> None:
+    config_path = tmp_path / ".alphaengine.local.json"
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("ALPHA_OPENAI_API_KEY", raising=False)
+    monkeypatch.setattr(local_config, "LOCAL_CONFIG_PATH", config_path)
+    monkeypatch.setattr(routes, "LOCAL_CONFIG_PATH", config_path)
+
+    app = create_app()
+
+    with TestClient(app) as client:
+        response = client.put(
+            "/api/v1/settings",
+            json={
+                "market_data_provider": "mock",
+                "ai_agents": {
+                    "risk_assessment": {
+                        "ai_advisor_provider": "openai",
+                        "ai_model_family": "gemini",
+                        "openai_base_url": "https://gemini.example.com",
+                        "openai_model": "gemini-test",
+                        "openai_api_key": "risk-key",
+                    },
+                    "asset_allocation": {
+                        "ai_advisor_provider": "openai",
+                        "ai_model_family": "claude",
+                        "openai_base_url": "https://claude.example.com",
+                        "openai_model": "claude-test",
+                        "openai_api_key": "allocation-key",
+                    },
+                    "return_analysis": {
+                        "ai_advisor_provider": "openai",
+                        "ai_model_family": "deepseek",
+                        "openai_base_url": "https://deepseek.example.com",
+                        "openai_model": "deepseek-test",
+                        "openai_api_key": "return-key",
+                    },
+                    "compliance_review": {
+                        "ai_advisor_provider": "mock",
+                        "ai_model_family": "gpt",
+                        "openai_base_url": "https://api.openai.com",
+                        "openai_model": "gpt-5.4-mini",
+                    },
+                    "ai_advisor": {
+                        "ai_advisor_provider": "openai",
+                        "ai_model_family": "gpt",
+                        "openai_base_url": "https://gpt.example.com",
+                        "openai_model": "gpt-test",
+                        "openai_api_key": "summary-key",
+                    },
+                },
+            },
+        )
+
+        assert response.status_code == 200
+        payload = response.json()
+        agents = payload["ai_agents"]
+        assert agents["risk_assessment"]["ai_model_family"] == "gemini"
+        assert agents["risk_assessment"]["ai_runtime_provider"] == "gemini"
+        assert agents["asset_allocation"]["ai_model_family"] == "claude"
+        assert agents["asset_allocation"]["ai_runtime_provider"] == "claude"
+        assert agents["return_analysis"]["ai_model_family"] == "deepseek"
+        assert agents["return_analysis"]["ai_runtime_provider"] == "deepseek"
+        assert agents["compliance_review"]["ai_is_model_generated"] is False
+        assert agents["ai_advisor"]["ai_runtime_provider"] == "gpt"
+
+    saved = json.loads(config_path.read_text(encoding="utf-8"))
+    assert saved["ai_agents"]["risk_assessment"]["openai_api_key"] == "risk-key"
+    assert saved["ai_agents"]["asset_allocation"]["openai_api_key"] == "allocation-key"

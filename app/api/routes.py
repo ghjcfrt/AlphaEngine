@@ -6,9 +6,10 @@ from fastapi import APIRouter, HTTPException, Query, Request, WebSocket, WebSock
 
 from app.acp.message import ACPMessage
 from app.agents.base import AgentInfo
-from app.core.config import get_settings
+from app.core.config import AI_AGENT_LABELS, get_settings, resolve_ai_model_settings
 from app.core.local_config import LOCAL_CONFIG_PATH, load_local_config, save_local_config
 from app.domain.schemas import (
+    AgentAISettingsResponse,
     InvestmentPlanRequest,
     InvestmentPlanResponse,
     QuoteSnapshot,
@@ -34,6 +35,7 @@ async def health(request: Request) -> dict[str, object]:
         "ai_runtime_provider": ai_service.provider_name,
         "ai_runtime_model": ai_service.provider_model,
         "ai_is_model_generated": ai_service.is_model_generated,
+        "ai_agents": _ai_agent_responses(request),
     }
 
 
@@ -67,11 +69,11 @@ async def update_runtime_settings(
         if value is not None:
             config[key] = value
 
-    _merge_secret(config, payload, "openai_api_key")
-    _merge_secret(config, payload, "finnhub_api_key")
-    _merge_secret(config, payload, "polygon_api_key")
-
     try:
+        _merge_secret(config, payload, "openai_api_key")
+        _merge_secret(config, payload, "finnhub_api_key")
+        _merge_secret(config, payload, "polygon_api_key")
+        _merge_ai_agents(config, payload.get("ai_agents"))
         save_local_config(config)
         get_settings.cache_clear()
         settings = get_settings()
@@ -154,7 +156,55 @@ def _settings_response(request: Request) -> RuntimeSettingsResponse:
         has_finnhub_api_key=_has_secret(settings.finnhub_api_key),
         has_polygon_api_key=_has_secret(settings.polygon_api_key),
         local_config_path=str(LOCAL_CONFIG_PATH),
+        ai_agents=_ai_agent_responses(request),
     )
+
+
+def _ai_agent_responses(request: Request) -> dict[str, AgentAISettingsResponse]:
+    settings = request.app.state.settings
+    services = request.app.state.ai_advisor_services
+    result: dict[str, AgentAISettingsResponse] = {}
+    for agent_key, label in AI_AGENT_LABELS.items():
+        model_settings = resolve_ai_model_settings(settings, agent_key)
+        service = services[agent_key]
+        result[agent_key] = AgentAISettingsResponse(
+            label=label,
+            ai_advisor_provider=model_settings.ai_advisor_provider,
+            ai_model_family=model_settings.ai_model_family,
+            ai_runtime_provider=service.provider_name,
+            ai_runtime_model=service.provider_model,
+            ai_is_model_generated=service.is_model_generated,
+            openai_base_url=model_settings.openai_base_url,
+            openai_model=model_settings.openai_model,
+            has_openai_api_key=_has_secret(model_settings.openai_api_key),
+        )
+    return result
+
+
+def _merge_ai_agents(config: dict[str, object], payload: object) -> None:
+    if not isinstance(payload, dict):
+        return
+    existing = config.get("ai_agents")
+    ai_agents = existing if isinstance(existing, dict) else {}
+    for agent_key, raw_update in payload.items():
+        if agent_key not in AI_AGENT_LABELS:
+            raise ValueError(f"未知 AI Agent 配置：{agent_key}")
+        if not isinstance(raw_update, dict):
+            continue
+        current = ai_agents.get(agent_key)
+        agent_config = current if isinstance(current, dict) else {}
+        for key in [
+            "ai_advisor_provider",
+            "ai_model_family",
+            "openai_base_url",
+            "openai_model",
+        ]:
+            value = raw_update.get(key)
+            if value is not None:
+                agent_config[key] = value
+        _merge_secret(agent_config, raw_update, "openai_api_key")
+        ai_agents[agent_key] = agent_config
+    config["ai_agents"] = ai_agents
 
 
 def _merge_secret(config: dict[str, object], payload: dict[str, object], key: str) -> None:

@@ -1,1 +1,1 @@
-"""Core application settings and helpers."""
+"""核心配置和辅助函数。"""

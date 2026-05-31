@@ -307,44 +307,10 @@
         <section class="settings-grid">
           <div class="settings-section">
             <div class="section-heading">
-              <h2>AIAdvisorAgent</h2>
-              <span>大模型 Agent</span>
+              <h2>AI Agent 配置</h2>
+              <span>可混合模型系</span>
             </div>
-            <label>
-              <span>AI 提供方</span>
-              <select name="ai_advisor_provider">
-                <option value="auto">auto</option>
-                <option value="openai">openai</option>
-                <option value="mock">mock</option>
-                <option value="disabled">disabled</option>
-              </select>
-            </label>
-            <label>
-              <span>模型接口类型</span>
-              <select name="ai_model_family">
-                <option value="gpt">GPT / OpenAI Responses</option>
-                <option value="openai_compatible">OpenAI Chat 兼容</option>
-                <option value="gemini">Gemini</option>
-                <option value="claude">Claude / Anthropic</option>
-                <option value="deepseek">DeepSeek</option>
-              </select>
-            </label>
-            <label>
-              <span>模型 API URL</span>
-              <input name="openai_base_url" placeholder="https://api.openai.com" />
-            </label>
-            <label>
-              <span>模型名称</span>
-              <input name="openai_model" placeholder="gpt-5.4-mini" />
-            </label>
-            <label>
-              <span>模型 API Key</span>
-              <input name="openai_api_key" type="password" autocomplete="off" placeholder="留空则不修改" />
-            </label>
-            <label class="trace-toggle">
-              <input name="clear_openai_api_key" type="checkbox" />
-              <span id="openaiKeyState">清除已保存的模型 API Key</span>
-            </label>
+            <div class="ai-agent-grid" id="aiAgentSettings"></div>
           </div>
 
           <div class="settings-section">

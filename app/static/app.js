@@ -22,14 +22,42 @@ const familyHints = {
   claude: { url: "https://api.anthropic.com", model: "claude-sonnet-4-5" },
   deepseek: { url: "https://api.deepseek.com", model: "deepseek-v4.1" },
 };
+const aiAgentOrder = [
+  "risk_assessment",
+  "asset_allocation",
+  "return_analysis",
+  "compliance_review",
+  "ai_advisor",
+];
+const agentIdToAiKey = {
+  "risk-assessment-agent": "risk_assessment",
+  "asset-allocation-agent": "asset_allocation",
+  "return-analysis-agent": "return_analysis",
+  "compliance-agent": "compliance_review",
+  "ai-advisor-agent": "ai_advisor",
+};
+const aiAgentRoleNames = {
+  risk_assessment: "风险画像",
+  asset_allocation: "资产配置",
+  return_analysis: "收益情景",
+  compliance_review: "合规复核",
+  ai_advisor: "总结解读",
+};
 
 const $ = (selector) => document.querySelector(selector);
 
-function currentAiEnabled() {
-  return state.settings?.ai_is_model_generated === true;
+function currentAiEnabled(agentId) {
+  const aiKey = agentIdToAiKey[agentId] || "ai_advisor";
+  return state.settings?.ai_agents?.[aiKey]?.ai_is_model_generated === true;
 }
 
 function formatAiRuntime(source) {
+  if (source.ai_agents) {
+    const agents = Object.values(source.ai_agents);
+    const enabled = agents.filter((agent) => agent.ai_is_model_generated).length;
+    const families = [...new Set(agents.map((agent) => agent.ai_model_family))].join(" / ");
+    return `${enabled}/${agents.length} 个 AI Agent · ${families || "未配置"}`;
+  }
   const provider = source.ai_runtime_provider || source.ai_advisor_provider || "-";
   const model = source.ai_runtime_model ? ` · ${source.ai_runtime_model}` : "";
   const mode = source.ai_is_model_generated ? "模型生成" : "规则/模拟";
@@ -38,14 +66,14 @@ function formatAiRuntime(source) {
 
 function agentRole(agentId) {
   if (agentId === "ai-advisor-agent") {
-    return currentAiEnabled()
+    return currentAiEnabled(agentId)
       ? { label: "总结 AI Agent", className: "model" }
       : { label: "本地解读 Agent", className: "rule" };
   }
   if (agentId === "market-data-agent") {
     return { label: "行情 API Agent", className: "market" };
   }
-  return currentAiEnabled()
+  return currentAiEnabled(agentId)
     ? { label: "AI协作 Agent", className: "model" }
     : { label: "规则基线 Agent", className: "rule" };
 }
@@ -208,23 +236,100 @@ async function loadSettings() {
   }
 }
 
+function renderAiAgentSettings(aiAgents) {
+  const container = $("#aiAgentSettings");
+  container.innerHTML = aiAgentOrder
+    .map((agentKey) => {
+      const config = aiAgents[agentKey];
+      const title = config?.label || agentKey;
+      const role = aiAgentRoleNames[agentKey] || "AI";
+      const mode = config?.ai_is_model_generated ? "模型生成" : "规则/模拟";
+      const runtime = config?.ai_runtime_model
+        ? `${config.ai_runtime_provider} · ${config.ai_runtime_model}`
+        : config?.ai_runtime_provider || "-";
+      const keyState = config?.has_openai_api_key
+        ? "已保存 API Key，勾选后清除"
+        : "未保存 API Key";
+      const provider = config?.ai_advisor_provider || "auto";
+      const family = config?.ai_model_family || "gpt";
+      const hints = familyHints[family] || familyHints.gpt;
+      return `
+        <div class="ai-agent-card" data-agent-key="${agentKey}">
+          <header>
+            <strong>${escapeHtml(title)}</strong>
+            <span>${escapeHtml(role)} · ${escapeHtml(mode)} · ${escapeHtml(runtime)}</span>
+          </header>
+          <label>
+            <span>AI 提供方</span>
+            <select data-ai-field="ai_advisor_provider">
+              ${aiProviderOptions(provider)}
+            </select>
+          </label>
+          <label>
+            <span>模型接口类型</span>
+            <select data-ai-field="ai_model_family">
+              ${aiFamilyOptions(family)}
+            </select>
+          </label>
+          <label class="wide-field">
+            <span>模型 API URL</span>
+            <input data-ai-field="openai_base_url" value="${escapeHtml(
+              config?.openai_base_url || hints.url
+            )}" placeholder="${escapeHtml(hints.url)}" />
+          </label>
+          <label>
+            <span>模型名称</span>
+            <input data-ai-field="openai_model" value="${escapeHtml(
+              config?.openai_model || hints.model
+            )}" placeholder="${escapeHtml(hints.model)}" />
+          </label>
+          <label>
+            <span>模型 API Key</span>
+            <input data-ai-field="openai_api_key" type="password" autocomplete="off" placeholder="留空则不修改" />
+          </label>
+          <label class="trace-toggle wide-field">
+            <input data-ai-field="clear_openai_api_key" type="checkbox" />
+            <span>${escapeHtml(keyState)}</span>
+          </label>
+        </div>
+      `;
+    })
+    .join("");
+  container.querySelectorAll('[data-ai-field="ai_model_family"]').forEach((select) => {
+    select.addEventListener("change", () => applyFamilyHints(select.closest(".ai-agent-card")));
+  });
+}
+
+function aiProviderOptions(selected) {
+  return ["auto", "openai", "mock", "disabled"]
+    .map((value) => `<option value="${value}" ${value === selected ? "selected" : ""}>${value}</option>`)
+    .join("");
+}
+
+function aiFamilyOptions(selected) {
+  return [
+    ["gpt", "GPT / OpenAI Responses"],
+    ["openai_compatible", "OpenAI Chat 兼容"],
+    ["gemini", "Gemini"],
+    ["claude", "Claude / Anthropic"],
+    ["deepseek", "DeepSeek"],
+  ]
+    .map(
+      ([value, label]) =>
+        `<option value="${value}" ${value === selected ? "selected" : ""}>${label}</option>`
+    )
+    .join("");
+}
+
 function renderSettingsState(settings) {
   const form = $("#settingsForm");
   const fields = form.elements;
-  fields.namedItem("ai_advisor_provider").value = settings.ai_advisor_provider;
-  fields.namedItem("ai_model_family").value = settings.ai_model_family;
+  renderAiAgentSettings(settings.ai_agents || {});
   fields.namedItem("market_data_provider").value = settings.market_data_provider;
-  fields.namedItem("openai_base_url").value = settings.openai_base_url;
-  fields.namedItem("openai_model").value = settings.openai_model;
-  fields.namedItem("openai_api_key").value = "";
   fields.namedItem("finnhub_api_key").value = "";
   fields.namedItem("polygon_api_key").value = "";
-  fields.namedItem("clear_openai_api_key").checked = false;
   fields.namedItem("clear_finnhub_api_key").checked = false;
   fields.namedItem("clear_polygon_api_key").checked = false;
-  $("#openaiKeyState").textContent = settings.has_openai_api_key
-    ? "已保存模型 API Key，勾选后清除"
-    : "未保存模型 API Key";
   $("#finnhubKeyState").textContent = settings.has_finnhub_api_key
     ? "已保存 Finnhub API Key，勾选后清除"
     : "未保存 Finnhub API Key";
@@ -234,7 +339,6 @@ function renderSettingsState(settings) {
   $("#configPath").textContent = settings.local_config_path;
   $("#providerStatus").textContent = settings.market_data_provider;
   $("#aiProviderStatus").textContent = formatAiRuntime(settings);
-  applyFamilyHints();
 }
 
 async function loadAgents() {
@@ -266,21 +370,13 @@ async function saveSettings(event) {
   const form = event.currentTarget;
   const fields = form.elements;
   const payload = {
-    ai_advisor_provider: fields.namedItem("ai_advisor_provider").value,
-    ai_model_family: fields.namedItem("ai_model_family").value,
+    ai_agents: collectAiAgentSettings(),
     market_data_provider: fields.namedItem("market_data_provider").value,
-    openai_base_url: fields.namedItem("openai_base_url").value.trim(),
-    openai_model: fields.namedItem("openai_model").value.trim(),
-    clear_openai_api_key: fields.namedItem("clear_openai_api_key").checked,
     clear_finnhub_api_key: fields.namedItem("clear_finnhub_api_key").checked,
     clear_polygon_api_key: fields.namedItem("clear_polygon_api_key").checked,
   };
-  const openaiKey = fields.namedItem("openai_api_key").value.trim();
   const finnhubKey = fields.namedItem("finnhub_api_key").value.trim();
   const polygonKey = fields.namedItem("polygon_api_key").value.trim();
-  if (openaiKey) {
-    payload.openai_api_key = openaiKey;
-  }
   if (finnhubKey) {
     payload.finnhub_api_key = finnhubKey;
   }
@@ -304,6 +400,34 @@ async function saveSettings(event) {
   }
 }
 
+function collectAiAgentSettings() {
+  const aiAgents = {};
+  document.querySelectorAll(".ai-agent-card").forEach((card) => {
+    const agentKey = card.dataset.agentKey;
+    const config = {
+      ai_advisor_provider: fieldValue(card, "ai_advisor_provider"),
+      ai_model_family: fieldValue(card, "ai_model_family"),
+      openai_base_url: fieldValue(card, "openai_base_url").trim(),
+      openai_model: fieldValue(card, "openai_model").trim(),
+      clear_openai_api_key: fieldChecked(card, "clear_openai_api_key"),
+    };
+    const apiKey = fieldValue(card, "openai_api_key").trim();
+    if (apiKey) {
+      config.openai_api_key = apiKey;
+    }
+    aiAgents[agentKey] = config;
+  });
+  return aiAgents;
+}
+
+function fieldValue(container, fieldName) {
+  return container.querySelector(`[data-ai-field="${fieldName}"]`)?.value || "";
+}
+
+function fieldChecked(container, fieldName) {
+  return container.querySelector(`[data-ai-field="${fieldName}"]`)?.checked || false;
+}
+
 async function openSettingsDialog() {
   if (!state.settings) {
     await loadSettings();
@@ -313,15 +437,14 @@ async function openSettingsDialog() {
   $("#settingsDialog").showModal();
 }
 
-function applyFamilyHints() {
-  const fields = $("#settingsForm").elements;
-  const family = fields.namedItem("ai_model_family").value;
+function applyFamilyHints(card) {
+  const family = fieldValue(card, "ai_model_family");
   const hints = familyHints[family];
   if (!hints) {
     return;
   }
-  fields.namedItem("openai_base_url").placeholder = hints.url;
-  fields.namedItem("openai_model").placeholder = hints.model;
+  card.querySelector('[data-ai-field="openai_base_url"]').placeholder = hints.url;
+  card.querySelector('[data-ai-field="openai_model"]').placeholder = hints.model;
 }
 
 async function submitPlan(event) {
@@ -600,9 +723,6 @@ function bindEvents() {
   $("#closeSettings").addEventListener("click", () => $("#settingsDialog").close());
   $("#cancelSettings").addEventListener("click", () => $("#settingsDialog").close());
   $("#settingsForm").addEventListener("submit", saveSettings);
-  $("#settingsForm")
-    .elements.namedItem("ai_model_family")
-    .addEventListener("change", applyFamilyHints);
   document.querySelectorAll(".tab").forEach((button) => {
     button.addEventListener("click", () => {
       state.activeTab = button.dataset.tab;

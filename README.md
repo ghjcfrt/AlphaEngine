@@ -33,7 +33,8 @@ Finnhub REST quote 接口用于美股当前快照，`/api/v1/market/ws/{symbol}`
 默认配置是 `ALPHA_AI_ADVISOR_PROVIDER=auto`：
 
 - 配置 `OPENAI_API_KEY` 时，后端会通过 OpenAI Responses API 调用大模型，默认模型为 `gpt-5.4-mini`。
-- 前端“配置源”窗口可以填写模型接口类型、模型 API URL、模型名称和 API Key。
+- 前端“配置源”窗口可以分别配置风险、配置、收益、合规、总结 5 个 AI Agent 的模型接口类型、模型 API URL、模型名称和 API Key。
+- 5 个 AI Agent 可以同时使用不同模型系，例如风险 Agent 用 Gemini、配置 Agent 用 Claude、收益 Agent 用 DeepSeek、总结 Agent 用 GPT。
 - 模型接口类型支持 GPT/OpenAI Responses、OpenAI Chat 兼容、Gemini、Claude/Anthropic、DeepSeek。不同类型会使用不同的 endpoint、鉴权头和请求体。
 - 没有配置 key 时，会回退到本地规则/模拟结果，并在返回结果里标记 `is_model_generated=false`。
 - 如需关闭 AI 解读，可设置 `ALPHA_AI_ADVISOR_PROVIDER=disabled`。

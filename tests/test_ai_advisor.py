@@ -156,3 +156,33 @@ def test_auto_provider_ignores_placeholder_openai_key() -> None:
     )
 
     assert isinstance(service.provider, MockAIAdvisorProvider)
+
+
+def test_build_provider_supports_per_agent_model_families() -> None:
+    settings = Settings(
+        ai_advisor_provider="mock",
+        ai_agents={
+            "risk_assessment": {
+                "ai_advisor_provider": "openai",
+                "ai_model_family": "gemini",
+                "openai_base_url": "https://gemini.example.com",
+                "openai_model": "gemini-risk",
+                "openai_api_key": "risk-key",
+            },
+            "asset_allocation": {
+                "ai_advisor_provider": "openai",
+                "ai_model_family": "claude",
+                "openai_base_url": "https://claude.example.com",
+                "openai_model": "claude-allocation",
+                "openai_api_key": "allocation-key",
+            },
+        },
+    )
+
+    risk_service = build_ai_advisor_service(settings, "risk_assessment")
+    allocation_service = build_ai_advisor_service(settings, "asset_allocation")
+
+    assert isinstance(risk_service.provider, GeminiGenerateContentAdvisorProvider)
+    assert risk_service.provider.base_url == "https://gemini.example.com"
+    assert isinstance(allocation_service.provider, AnthropicMessagesAdvisorProvider)
+    assert allocation_service.provider.base_url == "https://claude.example.com"

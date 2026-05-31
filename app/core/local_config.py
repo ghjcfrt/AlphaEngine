@@ -9,6 +9,7 @@ ALLOWED_KEYS = {
     "market_data_provider",
     "ai_advisor_provider",
     "ai_model_family",
+    "ai_agents",
     "openai_api_key",
     "openai_base_url",
     "openai_model",

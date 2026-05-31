@@ -925,6 +925,46 @@ td {
   margin-bottom: 0;
 }
 
+.ai-agent-grid {
+  display: grid;
+  gap: 10px;
+}
+
+.ai-agent-card {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.ai-agent-card header {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 28px;
+}
+
+.ai-agent-card header strong,
+.ai-agent-card header span {
+  min-width: 0;
+}
+
+.ai-agent-card header span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  text-align: right;
+}
+
+.ai-agent-card .wide-field {
+  grid-column: 1 / -1;
+}
+
 .hidden {
   display: none !important;
 }
@@ -974,7 +1014,8 @@ td {
   .allocation-layout,
   .allocation-item,
   .projection-row,
-  .settings-grid {
+  .settings-grid,
+  .ai-agent-card {
     grid-template-columns: 1fr;
   }
 
