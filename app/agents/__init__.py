@@ -1,1 +1,1 @@
-"""Investment advisor agents."""
+"""投顾多智能体模块。"""

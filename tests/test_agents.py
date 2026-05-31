@@ -1,6 +1,7 @@
 import pytest
 
 from app.acp.bus import InMemoryACPBus
+from app.agents.ai_advisor import AIAdvisorAgent
 from app.agents.allocation import AssetAllocationAgent
 from app.agents.compliance import ComplianceAgent
 from app.agents.coordinator import AdviceCoordinatorAgent
@@ -8,6 +9,7 @@ from app.agents.market import MarketDataAgent
 from app.agents.returns import ReturnAnalysisAgent
 from app.agents.risk import RiskAssessmentAgent
 from app.domain.schemas import InvestmentPlanRequest
+from app.services.ai_advisor import AIAdvisorService, MockAIAdvisorProvider
 from app.services.market_data import MarketDataService, MockMarketDataProvider
 
 
@@ -41,6 +43,7 @@ async def test_coordinator_builds_plan_with_acp_trace() -> None:
         market_agent=MarketDataAgent(MarketDataService(MockMarketDataProvider())),
         return_agent=ReturnAnalysisAgent(),
         compliance_agent=ComplianceAgent(),
+        ai_advisor_agent=AIAdvisorAgent(AIAdvisorService(MockAIAdvisorProvider())),
     )
 
     response = await coordinator.create_plan(_request(include_trace=True))
@@ -51,5 +54,7 @@ async def test_coordinator_builds_plan_with_acp_trace() -> None:
     assert {quote.symbol for quote in response.quotes} >= {"AAPL", "MSFT", "VTI", "BND"}
     assert response.return_analysis.projections
     assert response.compliance_review.warnings
+    assert response.ai_review.provider == "mock-ai"
+    assert response.ai_review.is_model_generated is False
     assert response.acp_trace is not None
-    assert len(response.acp_trace) == 10
+    assert len(response.acp_trace) == 12

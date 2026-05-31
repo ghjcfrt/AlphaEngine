@@ -1,0 +1,393 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>AlphaEngine 工作台</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar" aria-label="系统状态">
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true">A</span>
+          <div>
+            <strong>AlphaEngine</strong>
+            <span>智能投顾工作台</span>
+          </div>
+        </div>
+
+        <section class="status-panel">
+          <div class="panel-heading">
+            <span>服务状态</span>
+            <span class="status-dot" id="statusDot" aria-hidden="true"></span>
+          </div>
+          <dl>
+            <div>
+              <dt>API</dt>
+              <dd id="apiStatus">检查中</dd>
+            </div>
+            <div>
+              <dt>行情源</dt>
+              <dd id="providerStatus">-</dd>
+            </div>
+            <div>
+              <dt>AI 源</dt>
+              <dd id="aiProviderStatus">-</dd>
+            </div>
+          </dl>
+          <button class="ghost-button full-button" id="openSettings" type="button">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 15.5A3.5 3.5 0 1 0 12 8a3.5 3.5 0 0 0 0 7.5Z" />
+              <path d="M19.4 15a1.8 1.8 0 0 0 .36 1.98l.06.06a2.1 2.1 0 0 1-2.97 2.97l-.06-.06a1.8 1.8 0 0 0-1.98-.36 1.8 1.8 0 0 0-1.1 1.65V21a2.1 2.1 0 0 1-4.2 0v-.09A1.8 1.8 0 0 0 8.4 19.3a1.8 1.8 0 0 0-1.98.36l-.06.06a2.1 2.1 0 0 1-2.97-2.97l.06-.06A1.8 1.8 0 0 0 3.8 14.7a1.8 1.8 0 0 0-1.65-1.1H2.1a2.1 2.1 0 0 1 0-4.2h.09A1.8 1.8 0 0 0 3.8 8.3a1.8 1.8 0 0 0-.36-1.98l-.06-.06a2.1 2.1 0 0 1 2.97-2.97l.06.06A1.8 1.8 0 0 0 8.4 3.7a1.8 1.8 0 0 0 1.1-1.65V2a2.1 2.1 0 0 1 4.2 0v.09a1.8 1.8 0 0 0 1.1 1.65 1.8 1.8 0 0 0 1.98-.36l.06-.06a2.1 2.1 0 0 1 2.97 2.97l-.06.06A1.8 1.8 0 0 0 19.4 8.4a1.8 1.8 0 0 0 1.65 1.1h.09a2.1 2.1 0 0 1 0 4.2h-.09A1.8 1.8 0 0 0 19.4 15Z" />
+            </svg>
+            配置源
+          </button>
+        </section>
+
+        <section class="agent-panel">
+          <div class="panel-heading">
+            <span>Agent 编排</span>
+            <button class="icon-button" id="refreshAgents" type="button" aria-label="刷新 Agent">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M21 12a9 9 0 0 1-15.2 6.5M3 12A9 9 0 0 1 18.2 5.5" />
+                <path d="M21 4v6h-6M3 20v-6h6" />
+              </svg>
+            </button>
+          </div>
+          <div class="agent-list" id="agentList"></div>
+        </section>
+      </aside>
+
+      <main class="workspace">
+        <header class="topbar">
+          <div>
+            <h1>投资计划生成</h1>
+            <p>多 AI Agent 协作 · 风险预算 · 行情快照 · 合规留痕</p>
+          </div>
+          <div class="top-actions">
+            <button class="ghost-button" id="loadSample" type="button">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M4 4h16v16H4z" />
+                <path d="M8 8h8M8 12h8M8 16h5" />
+              </svg>
+              示例
+            </button>
+            <button class="primary-button" form="planForm" type="submit">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M5 12h14" />
+                <path d="m13 6 6 6-6 6" />
+              </svg>
+              生成计划
+            </button>
+          </div>
+        </header>
+
+        <section class="grid-layout" aria-label="投顾工作区">
+          <form class="input-pane" id="planForm">
+            <section class="section-block">
+              <div class="section-heading">
+                <h2>投资人画像</h2>
+                <span>画像</span>
+              </div>
+              <div class="form-grid">
+                <label>
+                  <span>用户 ID</span>
+                  <input name="user_id" required value="demo-user" />
+                </label>
+                <label>
+                  <span>年龄</span>
+                  <input name="age" type="number" min="18" max="100" required value="32" />
+                </label>
+                <label>
+                  <span>年收入</span>
+                  <input name="annual_income" type="number" min="0" step="1000" required value="300000" />
+                </label>
+                <label>
+                  <span>净资产</span>
+                  <input name="net_worth" type="number" min="0" step="1000" required value="800000" />
+                </label>
+                <label>
+                  <span>初始投资本金</span>
+                  <input name="initial_capital" type="number" min="1" step="1000" required value="200000" />
+                </label>
+                <label>
+                  <span>投资期限（年）</span>
+                  <input name="investment_horizon_years" type="number" min="1" max="50" required value="8" />
+                </label>
+              </div>
+            </section>
+
+            <section class="section-block">
+              <div class="section-heading">
+                <h2>目标与约束</h2>
+                <span>约束</span>
+              </div>
+              <div class="control-group">
+                <span class="field-title">流动性需求</span>
+                <div class="segmented" role="radiogroup" aria-label="流动性需求">
+                  <label><input type="radio" name="liquidity_need" value="low" /><span>低</span></label>
+                  <label><input type="radio" name="liquidity_need" value="medium" checked /><span>中</span></label>
+                  <label><input type="radio" name="liquidity_need" value="high" /><span>高</span></label>
+                </div>
+              </div>
+              <div class="control-group">
+                <span class="field-title">投资目标</span>
+                <div class="segmented wide" role="radiogroup" aria-label="投资目标">
+                  <label><input type="radio" name="investment_objective" value="capital_preservation" /><span>保值</span></label>
+                  <label><input type="radio" name="investment_objective" value="income" /><span>收入</span></label>
+                  <label><input type="radio" name="investment_objective" value="balanced" /><span>均衡</span></label>
+                  <label><input type="radio" name="investment_objective" value="growth" checked /><span>成长</span></label>
+                </div>
+              </div>
+              <div class="control-group">
+                <span class="field-title">风险问卷</span>
+                <div class="slider-list" id="riskSliders"></div>
+              </div>
+            </section>
+
+            <section class="section-block">
+              <div class="section-heading">
+                <h2>行情与持仓</h2>
+                <span>行情</span>
+              </div>
+              <label class="full-field">
+                <span>关注标的</span>
+                <input name="symbols" value="600519.SH,000001.SZ,AAPL,MSFT,SPY" />
+              </label>
+              <div class="positions-header">
+                <span class="field-title">已有持仓</span>
+                <button class="small-button" id="addPosition" type="button">
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M12 5v14M5 12h14" />
+                  </svg>
+                  添加
+                </button>
+              </div>
+              <div class="positions" id="positions"></div>
+              <label class="trace-toggle">
+                <input name="include_acp_trace" type="checkbox" checked />
+                <span>返回 ACP trace</span>
+              </label>
+            </section>
+          </form>
+
+          <section class="result-pane" aria-live="polite">
+            <div class="disclaimer-banner">
+              <strong>非投资建议</strong>
+              <span>本系统输出仅用于教育、研究和产品原型演示，不构成任何买卖建议、收益承诺或个性化投顾服务。执行前请由具备资质的专业人员结合客户适当性、产品准入、数据授权和当地监管要求复核。</span>
+            </div>
+
+            <div class="empty-state" id="emptyState">
+              <canvas id="previewCanvas" width="720" height="360" aria-hidden="true"></canvas>
+              <h2>等待生成投资计划</h2>
+              <p>当前会话暂无结果。</p>
+            </div>
+
+            <div class="loading-state hidden" id="loadingState">
+              <span class="loader" aria-hidden="true"></span>
+              <strong>Agent 正在协作生成计划</strong>
+            </div>
+
+            <div class="results hidden" id="results">
+              <section class="summary-grid">
+                <div class="metric-box risk-box">
+                  <span>风险评分</span>
+                  <strong id="riskScore">-</strong>
+                  <small id="riskLevel">-</small>
+                </div>
+                <div class="metric-box">
+                  <span>预期年化收益</span>
+                  <strong id="expectedReturn">-</strong>
+                  <small>基于配置假设</small>
+                </div>
+                <div class="metric-box">
+                  <span>预期年化波动</span>
+                  <strong id="expectedVolatility">-</strong>
+                  <small>组合近似估算</small>
+                </div>
+                <div class="metric-box">
+                  <span>人工复核</span>
+                  <strong id="reviewFlag">-</strong>
+                  <small>合规规则触发</small>
+                </div>
+              </section>
+
+              <section class="section-block result-section">
+                <div class="section-heading">
+                  <h2>配置建议</h2>
+                  <span id="rebalanceText">-</span>
+                </div>
+                <div class="allocation-layout">
+                  <div class="donut-wrap">
+                    <div class="donut" id="allocationDonut"></div>
+                  </div>
+                  <div class="allocation-list" id="allocationList"></div>
+                </div>
+              </section>
+
+              <section class="section-block result-section">
+                <div class="section-heading">
+                  <h2>收益情景</h2>
+                  <span>情景</span>
+                </div>
+                <div class="projection-chart" id="projectionChart"></div>
+              </section>
+
+              <section class="section-block result-section">
+                <div class="section-heading">
+                  <h2>行情快照</h2>
+                  <button class="icon-button" id="refreshQuotes" type="button" aria-label="刷新行情">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M21 12a9 9 0 0 1-15.2 6.5M3 12A9 9 0 0 1 18.2 5.5" />
+                      <path d="M21 4v6h-6M3 20v-6h6" />
+                    </svg>
+                  </button>
+                </div>
+                <div class="table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>代码</th>
+                        <th>价格</th>
+                        <th>涨跌</th>
+                        <th>来源</th>
+                        <th>更新时间</th>
+                      </tr>
+                    </thead>
+                    <tbody id="quoteRows"></tbody>
+                  </table>
+                </div>
+              </section>
+
+              <section class="section-block result-section">
+                <div class="tabs" role="tablist" aria-label="结果详情">
+                  <button class="tab active" data-tab="ai" type="button">AI</button>
+                  <button class="tab" data-tab="compliance" type="button">合规</button>
+                  <button class="tab" data-tab="rationale" type="button">理由</button>
+                  <button class="tab" data-tab="trace" type="button">Trace</button>
+                </div>
+                <div class="tab-panel" id="tabPanel"></div>
+              </section>
+            </div>
+
+            <div class="toast hidden" id="toast" role="status"></div>
+          </section>
+        </section>
+      </main>
+    </div>
+
+    <template id="positionTemplate">
+      <div class="position-row">
+        <input data-field="symbol" placeholder="代码" />
+        <input data-field="quantity" type="number" min="0" step="1" placeholder="数量" />
+        <input data-field="average_cost" type="number" min="0" step="0.01" placeholder="成本" />
+        <button class="icon-button remove-position" type="button" aria-label="删除持仓">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M5 12h14" />
+          </svg>
+        </button>
+      </div>
+    </template>
+
+    <dialog class="settings-dialog" id="settingsDialog">
+      <form class="settings-panel" id="settingsForm">
+        <header class="settings-header">
+          <div>
+            <h2>本地配置</h2>
+            <span id="configPath">.alphaengine.local.json</span>
+          </div>
+          <button class="icon-button" id="closeSettings" type="button" aria-label="关闭配置">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M18 6 6 18M6 6l12 12" />
+            </svg>
+          </button>
+        </header>
+
+        <section class="settings-grid">
+          <div class="settings-section">
+            <div class="section-heading">
+              <h2>AIAdvisorAgent</h2>
+              <span>大模型 Agent</span>
+            </div>
+            <label>
+              <span>AI 提供方</span>
+              <select name="ai_advisor_provider">
+                <option value="auto">auto</option>
+                <option value="openai">openai</option>
+                <option value="mock">mock</option>
+                <option value="disabled">disabled</option>
+              </select>
+            </label>
+            <label>
+              <span>模型接口类型</span>
+              <select name="ai_model_family">
+                <option value="gpt">GPT / OpenAI Responses</option>
+                <option value="openai_compatible">OpenAI Chat 兼容</option>
+                <option value="gemini">Gemini</option>
+                <option value="claude">Claude / Anthropic</option>
+                <option value="deepseek">DeepSeek</option>
+              </select>
+            </label>
+            <label>
+              <span>模型 API URL</span>
+              <input name="openai_base_url" placeholder="https://api.openai.com" />
+            </label>
+            <label>
+              <span>模型名称</span>
+              <input name="openai_model" placeholder="gpt-5.4-mini" />
+            </label>
+            <label>
+              <span>模型 API Key</span>
+              <input name="openai_api_key" type="password" autocomplete="off" placeholder="留空则不修改" />
+            </label>
+            <label class="trace-toggle">
+              <input name="clear_openai_api_key" type="checkbox" />
+              <span id="openaiKeyState">清除已保存的模型 API Key</span>
+            </label>
+          </div>
+
+          <div class="settings-section">
+            <div class="section-heading">
+              <h2>MarketDataAgent</h2>
+              <span>行情 API Agent</span>
+            </div>
+            <label>
+              <span>行情源</span>
+              <select name="market_data_provider">
+                <option value="hybrid">hybrid</option>
+                <option value="finnhub">finnhub</option>
+                <option value="polygon">polygon</option>
+                <option value="eastmoney">eastmoney</option>
+                <option value="mock">mock</option>
+              </select>
+            </label>
+            <label>
+              <span>Finnhub API Key</span>
+              <input name="finnhub_api_key" type="password" autocomplete="off" placeholder="留空则不修改" />
+            </label>
+            <label class="trace-toggle">
+              <input name="clear_finnhub_api_key" type="checkbox" />
+              <span id="finnhubKeyState">清除已保存的 Finnhub API Key</span>
+            </label>
+            <label>
+              <span>Polygon API Key</span>
+              <input name="polygon_api_key" type="password" autocomplete="off" placeholder="留空则不修改" />
+            </label>
+            <label class="trace-toggle">
+              <input name="clear_polygon_api_key" type="checkbox" />
+              <span id="polygonKeyState">清除已保存的 Polygon API Key</span>
+            </label>
+          </div>
+        </section>
+
+        <footer class="settings-actions">
+          <button class="ghost-button" id="cancelSettings" type="button">取消</button>
+          <button class="primary-button" type="submit">保存并生效</button>
+        </footer>
+      </form>
+    </dialog>
+
+    <script src="/static/app.js" defer></script>
+  </body>
+</html>

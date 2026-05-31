@@ -1,1 +1,1 @@
-"""External service clients."""
+"""外部服务客户端。"""

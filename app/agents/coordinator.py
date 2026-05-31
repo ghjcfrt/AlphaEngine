@@ -5,6 +5,7 @@ from pydantic import BaseModel
 
 from app.acp.bus import InMemoryACPBus
 from app.acp.message import ACPMessage, ACPPart
+from app.agents.ai_advisor import AIAdvisorAgent
 from app.agents.allocation import AssetAllocationAgent
 from app.agents.base import BaseAgent
 from app.agents.compliance import ComplianceAgent
@@ -12,6 +13,7 @@ from app.agents.market import MarketDataAgent
 from app.agents.returns import ReturnAnalysisAgent
 from app.agents.risk import RiskAssessmentAgent
 from app.domain.schemas import (
+    AIAdvisorReview,
     AllocationPlan,
     ComplianceReview,
     InvestmentPlanRequest,
@@ -33,6 +35,7 @@ class AdviceCoordinatorAgent:
         market_agent: MarketDataAgent,
         return_agent: ReturnAnalysisAgent,
         compliance_agent: ComplianceAgent,
+        ai_advisor_agent: AIAdvisorAgent,
     ) -> None:
         self.bus = bus
         self.risk_agent = risk_agent
@@ -40,6 +43,7 @@ class AdviceCoordinatorAgent:
         self.market_agent = market_agent
         self.return_agent = return_agent
         self.compliance_agent = compliance_agent
+        self.ai_advisor_agent = ai_advisor_agent
 
     async def create_plan(self, request: InvestmentPlanRequest) -> InvestmentPlanResponse:
         trace_id = str(uuid4())
@@ -94,6 +98,20 @@ class AdviceCoordinatorAgent:
             },
         )
 
+        ai_review: AIAdvisorReview = await self._invoke(
+            self.ai_advisor_agent,
+            trace_id,
+            "ai.review",
+            {
+                "profile": profile_payload,
+                "risk_assessment": risk_assessment.model_dump(mode="json"),
+                "allocation": allocation.model_dump(mode="json"),
+                "quotes": [quote.model_dump(mode="json") for quote in quotes],
+                "return_analysis": return_analysis.model_dump(mode="json"),
+                "compliance_review": compliance_review.model_dump(mode="json"),
+            },
+        )
+
         acp_trace = await self.bus.list_trace(trace_id) if request.include_acp_trace else None
         return InvestmentPlanResponse(
             trace_id=trace_id,
@@ -104,6 +122,7 @@ class AdviceCoordinatorAgent:
             quotes=quotes,
             return_analysis=return_analysis,
             compliance_review=compliance_review,
+            ai_review=ai_review,
             acp_trace=acp_trace,
         )
 

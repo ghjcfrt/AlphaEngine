@@ -1,15 +1,21 @@
 from math import sqrt
 
+from pydantic import ValidationError
+
 from app.acp.bus import InMemoryACPBus
 from app.acp.message import ACPMessage
 from app.agents.base import BaseAgent
 from app.domain.schemas import AllocationPlan, ProjectionPoint, QuoteSnapshot, ReturnAnalysis
+from app.services.ai_advisor import AIAdvisorError, AIAdvisorService
 
 
 class ReturnAnalysisAgent(BaseAgent):
     agent_id = "return-analysis-agent"
-    description = "估算预期收益、风险和多期限情景。"
-    capabilities = ["return_projection", "scenario_analysis", "quote_context"]
+    description = "由模型复核收益情景，并以量化假设作为测算基线。"
+    capabilities = ["ai_return_projection", "scenario_analysis", "quote_context"]
+
+    def __init__(self, ai_advisor_service: AIAdvisorService | None = None) -> None:
+        self.ai_advisor_service = ai_advisor_service
 
     _return_assumptions = {
         "US equity ETF": (0.07, 0.16),
@@ -21,6 +27,39 @@ class ReturnAnalysisAgent(BaseAgent):
 
     async def handle(self, message: ACPMessage, bus: InMemoryACPBus) -> ReturnAnalysis:
         payload = message.first_json()
+        baseline = self._rule_analysis(payload)
+        if not self.ai_advisor_service or not self.ai_advisor_service.is_model_generated:
+            return baseline
+        try:
+            generated = await self.ai_advisor_service.generate_json(
+                task_name="return_analysis",
+                system_instructions=(
+                    "你是收益情景分析 Agent。必须基于配置、行情、初始本金和规则基线输出 JSON。"
+                    "不得承诺收益，必须保留不确定性。"
+                ),
+                user_prompt=(
+                    "请复核预期收益、波动率和多期限情景。"
+                    "如果调整假设，需在 quote_summary 中说明限制。"
+                ),
+                schema=ReturnAnalysis.model_json_schema(),
+                context={
+                    "allocation": payload["allocation"],
+                    "quotes": payload.get("quotes", []),
+                    "initial_capital": payload["initial_capital"],
+                    "baseline": baseline.model_dump(mode="json"),
+                },
+            )
+            analysis = ReturnAnalysis.model_validate(generated)
+            analysis.quote_summary.append(
+                f"AI协作: {self.ai_advisor_service.provider_name} 已复核收益情景。"
+            )
+            return analysis
+        except (AIAdvisorError, ValidationError, ValueError) as exc:
+            baseline.quote_summary.append(f"AI协作失败，已回退规则基线：{exc}")
+            return baseline
+
+    @staticmethod
+    def _rule_analysis(payload: dict[str, object]) -> ReturnAnalysis:
         allocation = AllocationPlan.model_validate(payload["allocation"])
         quotes = [QuoteSnapshot.model_validate(item) for item in payload.get("quotes", [])]
         initial_capital = float(payload["initial_capital"])
@@ -29,7 +68,7 @@ class ReturnAnalysisAgent(BaseAgent):
         variance = 0.0
         for bucket in allocation.buckets:
             weight = bucket.target_weight_pct / 100
-            asset_return, asset_volatility = self._return_assumptions.get(
+            asset_return, asset_volatility = ReturnAnalysisAgent._return_assumptions.get(
                 bucket.asset_class, (0.04, 0.10)
             )
             expected_return += weight * asset_return
@@ -50,8 +89,8 @@ class ReturnAnalysisAgent(BaseAgent):
         ]
 
         quote_summary = [
-            f"{quote.symbol}: {quote.current_price:.2f} at {quote.updated_at.isoformat()} "
-            f"from {quote.source}"
+            f"{quote.symbol}：当前价格 {quote.current_price:.2f}，"
+            f"更新时间 {quote.updated_at.isoformat()}，来源 {quote.source}。"
             for quote in quotes
         ]
 

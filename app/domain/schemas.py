@@ -1,6 +1,6 @@
 from datetime import UTC, datetime
 from enum import StrEnum
-from typing import Any
+from typing import Any, Literal
 from uuid import uuid4
 
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -153,6 +153,16 @@ class ComplianceReview(BaseModel):
     requires_human_review: bool
 
 
+class AIAdvisorReview(BaseModel):
+    provider: str
+    model: str | None = None
+    is_model_generated: bool
+    summary: str
+    key_insights: list[str]
+    action_items: list[str]
+    limitations: list[str]
+
+
 class InvestmentPlanResponse(BaseModel):
     trace_id: str
     request_id: str
@@ -163,4 +173,40 @@ class InvestmentPlanResponse(BaseModel):
     quotes: list[QuoteSnapshot]
     return_analysis: ReturnAnalysis
     compliance_review: ComplianceReview
+    ai_review: AIAdvisorReview
     acp_trace: list[ACPMessage] | None = None
+
+
+class RuntimeSettingsResponse(BaseModel):
+    market_data_provider: Literal["hybrid", "finnhub", "polygon", "eastmoney", "mock"]
+    ai_advisor_provider: Literal["auto", "openai", "mock", "disabled"]
+    ai_model_family: Literal["gpt", "openai_compatible", "gemini", "claude", "deepseek"]
+    ai_runtime_provider: str
+    ai_runtime_model: str | None
+    ai_is_model_generated: bool
+    openai_base_url: str
+    openai_model: str
+    request_timeout_seconds: float
+    quote_cache_ttl_seconds: int
+    has_openai_api_key: bool
+    has_finnhub_api_key: bool
+    has_polygon_api_key: bool
+    local_config_path: str
+
+
+class RuntimeSettingsUpdate(BaseModel):
+    market_data_provider: Literal["hybrid", "finnhub", "polygon", "eastmoney", "mock"] | None = None
+    ai_advisor_provider: Literal["auto", "openai", "mock", "disabled"] | None = None
+    ai_model_family: (
+        Literal["gpt", "openai_compatible", "gemini", "claude", "deepseek"] | None
+    ) = None
+    openai_base_url: str | None = None
+    openai_model: str | None = None
+    openai_api_key: str | None = None
+    clear_openai_api_key: bool = False
+    finnhub_api_key: str | None = None
+    clear_finnhub_api_key: bool = False
+    polygon_api_key: str | None = None
+    clear_polygon_api_key: bool = False
+    request_timeout_seconds: float | None = Field(default=None, gt=0)
+    quote_cache_ttl_seconds: int | None = Field(default=None, ge=0)
