@@ -1,3 +1,5 @@
+from typing import Any
+
 from pydantic import ValidationError
 
 from app.acp.bus import InMemoryACPBus
@@ -10,7 +12,7 @@ from app.domain.schemas import (
     RiskAssessment,
     RiskLevel,
 )
-from app.services.ai_advisor import AIAdvisorError, AIAdvisorService
+from app.services.ai_advisor import AIAdvisorError, AIAdvisorJSONService
 
 
 class AssetAllocationAgent(BaseAgent):
@@ -18,7 +20,7 @@ class AssetAllocationAgent(BaseAgent):
     description = "由模型复核战略资产配置，并以规则模板作为风险预算基线。"
     capabilities = ["ai_strategic_allocation", "risk_budgeting", "rebalance_policy"]
 
-    def __init__(self, ai_advisor_service: AIAdvisorService | None = None) -> None:
+    def __init__(self, ai_advisor_service: AIAdvisorJSONService | None = None) -> None:
         self.ai_advisor_service = ai_advisor_service
 
     _templates: dict[RiskLevel, list[tuple[str, str, float, str]]] = {
@@ -89,7 +91,7 @@ class AssetAllocationAgent(BaseAgent):
             baseline.notes.append(f"AI协作失败，已回退规则基线：{exc}")
             return baseline
 
-    def _rule_plan(self, payload: dict[str, object]) -> AllocationPlan:
+    def _rule_plan(self, payload: dict[str, Any]) -> AllocationPlan:
         risk_assessment = RiskAssessment.model_validate(payload["risk_assessment"])
         initial_capital = float(payload["initial_capital"])
         objective = InvestmentObjective(

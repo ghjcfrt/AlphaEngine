@@ -127,7 +127,10 @@ async def stream_symbol(websocket: WebSocket, symbol: str) -> None:
             await upstream.send(json.dumps({"type": "subscribe", "symbol": normalized}))
             while True:
                 message = await upstream.recv()
-                await websocket.send_text(message)
+                if isinstance(message, bytes):
+                    await websocket.send_bytes(message)
+                else:
+                    await websocket.send_text(message)
     except WebSocketDisconnect:
         return
     except Exception as exc:

@@ -101,6 +101,8 @@ async def test_eastmoney_provider_parses_ashare_quote() -> None:
 @pytest.mark.asyncio
 async def test_hybrid_provider_routes_a_share_and_us_symbols() -> None:
     class StaticProvider:
+        name = "static"
+
         def __init__(self, quote: QuoteSnapshot) -> None:
             self.quote = quote
             self.calls: list[str] = []

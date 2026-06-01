@@ -1,3 +1,5 @@
+from typing import Any
+
 from pydantic import ValidationError
 
 from app.acp.bus import InMemoryACPBus
@@ -10,7 +12,7 @@ from app.domain.schemas import (
     RiskAssessment,
     RiskLevel,
 )
-from app.services.ai_advisor import AIAdvisorError, AIAdvisorService
+from app.services.ai_advisor import AIAdvisorError, AIAdvisorJSONService
 
 
 class ComplianceAgent(BaseAgent):
@@ -18,7 +20,7 @@ class ComplianceAgent(BaseAgent):
     description = "由模型复核适当性和披露完整性，并以规则红线作为合规基线。"
     capabilities = ["ai_suitability_review", "disclosures", "human_review_flags"]
 
-    def __init__(self, ai_advisor_service: AIAdvisorService | None = None) -> None:
+    def __init__(self, ai_advisor_service: AIAdvisorJSONService | None = None) -> None:
         self.ai_advisor_service = ai_advisor_service
 
     async def handle(self, message: ACPMessage, bus: InMemoryACPBus) -> ComplianceReview:
@@ -48,13 +50,17 @@ class ComplianceAgent(BaseAgent):
                 },
             )
             review = ComplianceReview.model_validate(generated)
-            return self._merge_with_baseline(review, baseline)
+            return self._merge_with_baseline(
+                review,
+                baseline,
+                self.ai_advisor_service.provider_name,
+            )
         except (AIAdvisorError, ValidationError, ValueError) as exc:
             baseline.warnings.append(f"AI协作失败，已回退规则合规基线：{exc}")
             return baseline
 
     @staticmethod
-    def _rule_review(payload: dict[str, object]) -> ComplianceReview:
+    def _rule_review(payload: dict[str, Any]) -> ComplianceReview:
         profile = InvestorProfile.model_validate(payload["profile"])
         risk_assessment = RiskAssessment.model_validate(payload["risk_assessment"])
         allocation = AllocationPlan.model_validate(payload["allocation"])
@@ -66,8 +72,7 @@ class ComplianceAgent(BaseAgent):
         suitability_notes = [
             f"风险等级为 {risk_assessment.risk_level.value}，"
             f"评分 {risk_assessment.risk_score:.1f}/100。",
-            f"建议的宽基权益暴露保持在 {risk_assessment.max_equity_pct:.0f}% "
-            "权益上限以内。",
+            f"建议的宽基权益暴露保持在 {risk_assessment.max_equity_pct:.0f}% 权益上限以内。",
         ]
         guardrails = [
             "执行前确认客户身份、投资目标、风险问卷和资金来源。",
@@ -100,10 +105,7 @@ class ComplianceAgent(BaseAgent):
         ]
         if concentrated_positions:
             requires_human_review = True
-            warnings.append(
-                "已有集中持仓需要复核："
-                + ", ".join(sorted(concentrated_positions))
-            )
+            warnings.append("已有集中持仓需要复核：" + ", ".join(sorted(concentrated_positions)))
 
         return ComplianceReview(
             warnings=warnings,
@@ -112,17 +114,18 @@ class ComplianceAgent(BaseAgent):
             requires_human_review=requires_human_review,
         )
 
+    @staticmethod
     def _merge_with_baseline(
-        self,
         review: ComplianceReview,
         baseline: ComplianceReview,
+        provider_name: str,
     ) -> ComplianceReview:
         return ComplianceReview(
             warnings=_dedupe(
                 [
                     *baseline.warnings,
                     *review.warnings,
-                    f"AI协作: {self.ai_advisor_service.provider_name} 已复核合规披露。",
+                    f"AI协作: {provider_name} 已复核合规披露。",
                 ]
             ),
             suitability_notes=_dedupe([*baseline.suitability_notes, *review.suitability_notes]),

@@ -5,8 +5,8 @@ import httpx
 from pydantic import BaseModel
 
 from app.core.config import (
-    AIModelSettings,
     AI_PROVIDER_LABELS,
+    AIModelSettings,
     Settings,
     resolve_ai_model_settings,
 )
@@ -37,9 +37,14 @@ class AIAdvisorError(RuntimeError):
 
 
 class AIAdvisorProvider(Protocol):
-    name: str
-    model: str | None
-    is_model_generated: bool
+    @property
+    def name(self) -> str: ...
+
+    @property
+    def model(self) -> str | None: ...
+
+    @property
+    def is_model_generated(self) -> bool: ...
 
     async def generate_json(
         self,
@@ -48,20 +53,34 @@ class AIAdvisorProvider(Protocol):
         user_prompt: str,
         schema: dict[str, Any],
         context: dict[str, Any],
-    ) -> dict[str, Any]:
-        ...
+    ) -> dict[str, Any]: ...
 
-    async def create_review(self, context: dict[str, Any]) -> AIAdvisorReview:
-        ...
+    async def create_review(self, context: dict[str, Any]) -> AIAdvisorReview: ...
 
-    async def close(self) -> None:
-        ...
+    async def close(self) -> None: ...
+
+
+class AIAdvisorJSONService(Protocol):
+    @property
+    def is_model_generated(self) -> bool: ...
+
+    @property
+    def provider_name(self) -> str: ...
+
+    async def generate_json(
+        self,
+        task_name: str,
+        system_instructions: str,
+        user_prompt: str,
+        schema: dict[str, Any],
+        context: dict[str, Any],
+    ) -> dict[str, Any]: ...
 
 
 class MockAIAdvisorProvider:
-    name = "Mock AI"
-    model = None
-    is_model_generated = False
+    name: str = "Mock AI"
+    model: str | None = None
+    is_model_generated: bool = False
 
     async def generate_json(
         self,
@@ -117,9 +136,9 @@ class MockAIAdvisorProvider:
 
 
 class DisabledAIAdvisorProvider:
-    name = "Disabled"
-    model = None
-    is_model_generated = False
+    name: str = "Disabled"
+    model: str | None = None
+    is_model_generated: bool = False
 
     async def generate_json(
         self,
@@ -142,7 +161,8 @@ class DisabledAIAdvisorProvider:
             summary="AI 解读已关闭。",
             key_insights=["当前仅返回规则型风险评估、资产配置、收益情景和合规提示。"],
             action_items=[
-                "设置 ALPHA_AI_ADVISOR_PROVIDER=OpenAI、Gemini、Anthropic 或 DeepSeek 后可启用 AI 解读。"
+                "设置 ALPHA_AI_ADVISOR_PROVIDER=OpenAI、Gemini、Anthropic 或 DeepSeek "
+                "后可启用 AI 解读。"
             ],
             limitations=["未调用大模型。"],
         )

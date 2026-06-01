@@ -12,7 +12,7 @@ from app.domain.schemas import (
     RiskAssessment,
     RiskLevel,
 )
-from app.services.ai_advisor import AIAdvisorError, AIAdvisorService
+from app.services.ai_advisor import AIAdvisorError, AIAdvisorJSONService
 
 
 class RiskAssessmentAgent(BaseAgent):
@@ -20,7 +20,7 @@ class RiskAssessmentAgent(BaseAgent):
     description = "由模型复核风险画像，并以规则评分作为可审计基线。"
     capabilities = ["ai_risk_scoring", "suitability_inputs", "risk_constraints"]
 
-    def __init__(self, ai_advisor_service: AIAdvisorService | None = None) -> None:
+    def __init__(self, ai_advisor_service: AIAdvisorJSONService | None = None) -> None:
         self.ai_advisor_service = ai_advisor_service
 
     async def handle(self, message: ACPMessage, bus: InMemoryACPBus) -> RiskAssessment:

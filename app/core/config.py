@@ -207,11 +207,19 @@ def align_ai_provider_and_family(
     return provider, family
 
 
+_settings_override: Settings | None = None
+
+
+def set_settings_override(settings: Settings | None) -> None:
+    global _settings_override
+    _settings_override = settings
+    get_settings.cache_clear()
+
+
 @lru_cache
 def get_settings() -> Settings:
-    override = getattr(get_settings, "override", None)
-    if override is not None:
-        return override
+    if _settings_override is not None:
+        return _settings_override
     settings = Settings()
     local_config = load_local_config()
     if local_config:

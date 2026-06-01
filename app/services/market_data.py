@@ -17,11 +17,9 @@ class MarketDataError(RuntimeError):
 class MarketDataProvider(Protocol):
     name: str
 
-    async def get_quote(self, symbol: str) -> QuoteSnapshot:
-        ...
+    async def get_quote(self, symbol: str) -> QuoteSnapshot: ...
 
-    async def close(self) -> None:
-        ...
+    async def close(self) -> None: ...
 
 
 class FinnhubMarketDataProvider:

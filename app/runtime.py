@@ -19,8 +19,7 @@ async def configure_runtime(app: FastAPI, settings: Settings, close_existing: bo
 
     market_service = build_market_data_service(settings)
     ai_advisor_services = {
-        agent_key: build_ai_advisor_service(settings, agent_key)
-        for agent_key in AI_AGENT_LABELS
+        agent_key: build_ai_advisor_service(settings, agent_key) for agent_key in AI_AGENT_LABELS
     }
     bus = getattr(app.state, "acp_bus", None) or InMemoryACPBus()
 

@@ -124,10 +124,12 @@ async def test_gemini_provider_uses_generate_content_shape() -> None:
 
 def test_build_provider_selects_deepseek_chat_endpoint() -> None:
     service = build_ai_advisor_service(
-        Settings(
-            ai_advisor_provider="DeepSeek",
-            ai_model_family="deepseek",
-            openai_api_key="test-key",
+        Settings.model_validate(
+            {
+                "ai_advisor_provider": "DeepSeek",
+                "ai_model_family": "deepseek",
+                "openai_api_key": "test-key",
+            }
         )
     )
 

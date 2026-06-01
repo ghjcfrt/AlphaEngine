@@ -1,4 +1,5 @@
 from math import sqrt
+from typing import Any
 
 from pydantic import ValidationError
 
@@ -6,7 +7,7 @@ from app.acp.bus import InMemoryACPBus
 from app.acp.message import ACPMessage
 from app.agents.base import BaseAgent
 from app.domain.schemas import AllocationPlan, ProjectionPoint, QuoteSnapshot, ReturnAnalysis
-from app.services.ai_advisor import AIAdvisorError, AIAdvisorService
+from app.services.ai_advisor import AIAdvisorError, AIAdvisorJSONService
 
 
 class ReturnAnalysisAgent(BaseAgent):
@@ -14,7 +15,7 @@ class ReturnAnalysisAgent(BaseAgent):
     description = "由模型复核收益情景，并以量化假设作为测算基线。"
     capabilities = ["ai_return_projection", "scenario_analysis", "quote_context"]
 
-    def __init__(self, ai_advisor_service: AIAdvisorService | None = None) -> None:
+    def __init__(self, ai_advisor_service: AIAdvisorJSONService | None = None) -> None:
         self.ai_advisor_service = ai_advisor_service
 
     _return_assumptions = {
@@ -59,7 +60,7 @@ class ReturnAnalysisAgent(BaseAgent):
             return baseline
 
     @staticmethod
-    def _rule_analysis(payload: dict[str, object]) -> ReturnAnalysis:
+    def _rule_analysis(payload: dict[str, Any]) -> ReturnAnalysis:
         allocation = AllocationPlan.model_validate(payload["allocation"])
         quotes = [QuoteSnapshot.model_validate(item) for item in payload.get("quotes", [])]
         initial_capital = float(payload["initial_capital"])

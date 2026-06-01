@@ -7,7 +7,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.api.routes import router
-from app.core.config import Settings, get_settings
+from app.core.config import Settings, get_settings, set_settings_override
 from app.runtime import close_runtime, configure_runtime
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -25,12 +25,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
-    if settings is not None:
-        get_settings.cache_clear()
-        get_settings.override = settings
-    elif hasattr(get_settings, "override"):
-        get_settings.cache_clear()
-        delattr(get_settings, "override")
+    set_settings_override(settings)
 
     app = FastAPI(
         title="AlphaEngine 多 AI 协作智能投顾",
