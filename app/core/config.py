@@ -9,6 +9,8 @@ from app.core.local_config import load_local_config
 DEFAULT_OPENAI_BASE_URL = "https://api.openai.com"
 DEFAULT_OPENAI_MODEL = "gpt-5.4-mini"
 
+# provider 描述“服务商/后端”，family 描述“请求协议/模型族”。
+# OpenAI 兼容接口、DeepSeek 等可能共享 Chat Completions 风格，但默认端点不同。
 AIProvider = Literal[
     "openai",
     "openai_compatible",
@@ -19,6 +21,7 @@ AIProvider = Literal[
 ]
 AIModelFamily = Literal["gpt", "openai_compatible", "gemini", "claude", "deepseek"]
 
+# provider -> family 用于后端推导实际请求协议。
 AI_PROVIDER_TO_FAMILY: dict[str, AIModelFamily] = {
     "openai": "gpt",
     "openai_compatible": "openai_compatible",
@@ -26,6 +29,7 @@ AI_PROVIDER_TO_FAMILY: dict[str, AIModelFamily] = {
     "anthropic": "claude",
     "deepseek": "deepseek",
 }
+# family -> provider 用于前端选择模型接口后反推 provider。
 AI_FAMILY_TO_PROVIDER: dict[str, AIProvider] = {
     "gpt": "openai",
     "openai_compatible": "openai_compatible",
@@ -33,6 +37,7 @@ AI_FAMILY_TO_PROVIDER: dict[str, AIProvider] = {
     "claude": "anthropic",
     "deepseek": "deepseek",
 }
+# 兼容历史配置和用户常见输入：比如 claude 实际映射到 anthropic provider。
 AI_PROVIDER_ALIASES = {
     "openai": "openai",
     "openai compatible": "openai_compatible",
@@ -52,6 +57,7 @@ AI_PROVIDER_ALIASES = {
     "off": "disabled",
     "auto": "openai",
 }
+# 仅用于展示，不参与逻辑分支。
 AI_PROVIDER_LABELS = {
     "openai": "OpenAI",
     "openai_compatible": "OpenAI Compatible",
@@ -61,6 +67,7 @@ AI_PROVIDER_LABELS = {
     "disabled": "Disabled",
 }
 
+# 每个专业 Agent 可以单独配置模型；这些 key 也是 API payload 的稳定字段。
 AI_AGENT_LABELS = {
     "risk_assessment": "RiskAssessmentAgent",
     "asset_allocation": "AssetAllocationAgent",
@@ -71,6 +78,8 @@ AI_AGENT_LABELS = {
 
 
 class AIModelSettings(BaseModel):
+    """某个 Agent 最终使用的 AI 模型配置。"""
+
     ai_advisor_provider: AIProvider = "openai"
     ai_model_family: AIModelFamily = "gpt"
     openai_api_key: str | None = None
@@ -89,11 +98,13 @@ class AIModelSettings(BaseModel):
 
     @model_validator(mode="after")
     def align_provider_and_family(self) -> "AIModelSettings":
+        # provider 和 family 是两种视角。用户只改其中一个时，这里负责补齐另一侧。
         self.ai_advisor_provider, self.ai_model_family = align_ai_provider_and_family(
             self.ai_advisor_provider,
             self.ai_model_family,
         )
         if self.ai_model_family == "openai_compatible":
+            # 兼容接口不能默认指向官方 OpenAI URL/模型，否则用户容易误以为已配置。
             if self.openai_base_url.strip().rstrip("/") == DEFAULT_OPENAI_BASE_URL:
                 self.openai_base_url = ""
             if self.openai_model.strip() == DEFAULT_OPENAI_MODEL:
@@ -102,6 +113,12 @@ class AIModelSettings(BaseModel):
 
 
 class Settings(BaseSettings):
+    """应用全局配置。
+
+    读取顺序：环境变量/.env 先生成 Settings，然后 get_settings() 再覆盖本地 JSON。
+    Pydantic 的 validation_alias 让新旧环境变量名都能被识别。
+    """
+
     app_name: str = "AlphaEngine"
     market_data_provider: Literal[
         "hybrid", "finnhub", "polygon", "alphavantage", "eastmoney"
@@ -173,6 +190,12 @@ class Settings(BaseSettings):
 
 
 def resolve_ai_model_settings(settings: Settings, agent_key: str | None = None) -> AIModelSettings:
+    """解析某个 Agent 的最终模型配置。
+
+    没有 agent_key 时返回全局配置；有 agent_key 时用 settings.ai_agents 中的局部配置
+    覆盖全局配置，从而支持“风险 Agent 用 Gemini，配置 Agent 用 Claude”等组合。
+    """
+
     base = AIModelSettings(
         ai_advisor_provider=settings.ai_advisor_provider,
         ai_model_family=settings.ai_model_family,
@@ -189,6 +212,8 @@ def resolve_ai_model_settings(settings: Settings, agent_key: str | None = None) 
 
 
 def normalize_ai_provider(value: object) -> object:
+    """把用户输入的 provider 别名归一到内部枚举值。"""
+
     if not isinstance(value, str):
         return value
     normalized = value.strip().lower().replace("_", " ")
@@ -196,6 +221,8 @@ def normalize_ai_provider(value: object) -> object:
 
 
 def normalize_ai_model_family(value: object) -> object:
+    """把用户输入的模型族/协议别名归一到内部 family。"""
+
     if not isinstance(value, str):
         return value
     normalized = value.strip().lower().replace("-", "_").replace(" ", "_")
@@ -210,6 +237,12 @@ def align_ai_provider_and_family(
     provider: AIProvider,
     family: AIModelFamily,
 ) -> tuple[AIProvider, AIModelFamily]:
+    """让 provider 与 family 保持一致。
+
+    provider=openai 时允许 family 决定最终 provider，因为前端旧版本可能只传 family；
+    provider 明确为 gemini/anthropic/deepseek 时，则以 provider 为准反推 family。
+    """
+
     if provider == "openai":
         return AI_FAMILY_TO_PROVIDER.get(family, "openai"), family
     if provider in AI_PROVIDER_TO_FAMILY:
@@ -221,6 +254,8 @@ _settings_override: Settings | None = None
 
 
 def set_settings_override(settings: Settings | None) -> None:
+    """测试辅助：注入 Settings，绕过真实环境变量和本地配置文件。"""
+
     global _settings_override
     _settings_override = settings
     get_settings.cache_clear()
@@ -228,10 +263,16 @@ def set_settings_override(settings: Settings | None) -> None:
 
 @lru_cache
 def get_settings() -> Settings:
+    """读取并缓存运行配置。
+
+    缓存能避免每个请求反复解析 .env 和 JSON 文件；设置更新后必须 cache_clear()。
+    """
+
     if _settings_override is not None:
         return _settings_override
     settings = Settings()
     local_config = load_local_config()
     if local_config:
+        # 本地配置来自前端配置弹窗，优先级高于 .env，便于运行时调整。
         return Settings.model_validate(settings.model_dump() | local_config)
     return settings

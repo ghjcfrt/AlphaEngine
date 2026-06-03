@@ -12,6 +12,12 @@ from app.services.ai_advisor import AIAdvisorError, AIAdvisorJSONService, descri
 
 
 class ReturnAnalysisAgent(BaseAgent):
+    """收益情景 Agent。
+
+    这里的规则基线是简化的均值/波动假设，不做真实资产定价；模型复核也必须保留
+    “不构成收益承诺”的限制。
+    """
+
     agent_id = "return-analysis-agent"
     description = "由模型复核收益情景，并以量化假设作为测算基线。"
     capabilities = ["ai_return_projection", "scenario_analysis", "quote_context"]
@@ -20,6 +26,7 @@ class ReturnAnalysisAgent(BaseAgent):
         self.ai_advisor_service = ai_advisor_service
 
     _return_assumptions = {
+        # 每类资产的年化收益和年化波动假设。真实产品需要用历史数据或研究假设替换。
         "US equity ETF": (0.07, 0.16),
         "Global equity ETF": (0.065, 0.18),
         "Bond ETF": (0.035, 0.06),
@@ -31,6 +38,7 @@ class ReturnAnalysisAgent(BaseAgent):
         payload = message.first_json()
         baseline = self._rule_analysis(payload)
         if not self.ai_advisor_service or not self.ai_advisor_service.is_model_generated:
+            # 没有 AI 复核时仍返回可解释的规则情景。
             return baseline
         try:
             generated = await self.ai_advisor_service.generate_json(
@@ -64,6 +72,8 @@ class ReturnAnalysisAgent(BaseAgent):
 
     @staticmethod
     def _rule_analysis(payload: dict[str, Any]) -> ReturnAnalysis:
+        """用配置权重和资产假设计算组合预期收益、波动和情景路径。"""
+
         allocation = AllocationPlan.model_validate(payload["allocation"])
         quotes = [QuoteSnapshot.model_validate(item) for item in payload.get("quotes", [])]
         initial_capital = float(payload["initial_capital"])
@@ -72,16 +82,20 @@ class ReturnAnalysisAgent(BaseAgent):
         variance = 0.0
         for bucket in allocation.buckets:
             weight = bucket.target_weight_pct / 100
+            # 未知资产类别使用保守默认假设，避免新资产桶导致 KeyError。
             asset_return, asset_volatility = ReturnAnalysisAgent._return_assumptions.get(
                 bucket.asset_class, (0.04, 0.10)
             )
             expected_return += weight * asset_return
+            # 简化处理：假设资产相关性为 0，因此组合方差是加权波动平方和。
             variance += (weight * asset_volatility) ** 2
 
         volatility = sqrt(variance)
+        # 下行情景取“预期收益 - 1.5 倍波动”，并设置 -45% 地板，防止极端负值失真。
         downside_return = max(expected_return - 1.5 * volatility, -0.45)
         upside_return = expected_return + volatility
 
+        # 展示 1/3/5/10 年复利路径，前端会把三条情景画成横向条形图。
         projections = [
             ProjectionPoint(
                 years=years,
@@ -92,6 +106,7 @@ class ReturnAnalysisAgent(BaseAgent):
             for years in [1, 3, 5, 10]
         ]
 
+        # 行情只作为上下文摘要，不直接改变规则收益假设。
         quote_summary = [
             f"{quote.symbol}：当前价格 {quote.current_price:.2f}，"
             f"更新时间 {quote.updated_at.isoformat()}，来源 {quote.source}。"

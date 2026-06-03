@@ -17,6 +17,12 @@ from app.services.ai_advisor import AIAdvisorError, AIAdvisorJSONService, descri
 
 
 class ComplianceAgent(BaseAgent):
+    """合规复核 Agent。
+
+    合规输出采用“只增强不削弱”的策略：AI 可以增加警示和护栏，但最终结果会把
+    规则基线合并回去，确保本地红线不会被模型删掉。
+    """
+
     agent_id = "compliance-agent"
     description = "由模型复核适当性和披露完整性，并以规则红线作为合规基线。"
     capabilities = ["ai_suitability_review", "disclosures", "human_review_flags"]
@@ -28,6 +34,7 @@ class ComplianceAgent(BaseAgent):
         payload = message.first_json()
         baseline = self._rule_review(payload)
         if not self.ai_advisor_service or not self.ai_advisor_service.is_model_generated:
+            # 合规基线包含必要披露，AI 关闭时直接返回。
             return baseline
         try:
             generated = await self.ai_advisor_service.generate_json(
@@ -51,6 +58,7 @@ class ComplianceAgent(BaseAgent):
                 },
             )
             review = ComplianceReview.model_validate(generated)
+            # 合并时保留 baseline 的全部 warning/guardrail，防止模型弱化披露。
             return self._merge_with_baseline(
                 review,
                 baseline,
@@ -64,6 +72,8 @@ class ComplianceAgent(BaseAgent):
 
     @staticmethod
     def _rule_review(payload: dict[str, Any]) -> ComplianceReview:
+        """根据画像、风险和配置触发合规提示。"""
+
         profile = InvestorProfile.model_validate(payload["profile"])
         risk_assessment = RiskAssessment.model_validate(payload["risk_assessment"])
         allocation = AllocationPlan.model_validate(payload["allocation"])
@@ -88,9 +98,11 @@ class ComplianceAgent(BaseAgent):
             RiskLevel.growth,
             RiskLevel.aggressive,
         }:
+            # 高龄客户叠加高风险等级，适当性风险更高，需要人工复核。
             requires_human_review = True
             warnings.append("高龄客户且风险等级较高，需要人工复核。")
 
+        # 现金等价物过低会与高流动性需求冲突。
         cash_weight = sum(
             bucket.target_weight_pct
             for bucket in allocation.buckets
@@ -100,6 +112,7 @@ class ComplianceAgent(BaseAgent):
             requires_human_review = True
             warnings.append("高流动性需求与较低现金等价物配置存在冲突。")
 
+        # 用平均成本估算已有持仓市值占净资产比例，识别集中持仓。
         concentrated_positions = [
             position.symbol
             for position in profile.current_positions
@@ -123,6 +136,8 @@ class ComplianceAgent(BaseAgent):
         baseline: ComplianceReview,
         provider_name: str,
     ) -> ComplianceReview:
+        """把 AI 复核结果与规则基线合并，基线内容优先保留。"""
+
         return ComplianceReview(
             warnings=_dedupe(
                 [
@@ -138,6 +153,8 @@ class ComplianceAgent(BaseAgent):
 
 
 def _dedupe(items: list[str]) -> list[str]:
+    """按首次出现顺序去重，保持披露文本稳定。"""
+
     seen: set[str] = set()
     result: list[str] = []
     for item in items:

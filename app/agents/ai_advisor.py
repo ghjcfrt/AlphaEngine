@@ -8,6 +8,11 @@ from app.services.ai_advisor import AIAdvisorError, AIAdvisorService, describe_a
 
 
 class AIAdvisorAgent(BaseAgent):
+    """最终中文解读 Agent。
+
+    它消费前面所有 Agent 的结构化结果，输出摘要、洞察、行动项和限制说明。
+    """
+
     agent_id = "ai-advisor-agent"
     description = "调用大模型生成投资计划的中文解释和执行关注点。"
     capabilities = ["llm_explanation", "suitability_narrative", "action_checklist"]
@@ -19,6 +24,7 @@ class AIAdvisorAgent(BaseAgent):
         try:
             return await self.ai_advisor_service.create_review(message.first_json())
         except (AIAdvisorError, httpx.HTTPError, ValueError) as exc:
+            # 最终解读失败时，不让整份计划失败；前端仍可展示规则型结果和错误原因。
             return AIAdvisorReview(
                 provider=self.ai_advisor_service.provider_name,
                 model=self.ai_advisor_service.provider_model,

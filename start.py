@@ -16,6 +16,7 @@ from pathlib import Path
 ROOT_DIR = Path(__file__).resolve().parent
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8000
+# 同时兼容项目自己的环境变量名和较短的旧变量名。
 PROVIDER_KEYS = {
     "ALPHA_MARKET_DATA_PROVIDER",
     "MARKET_DATA_PROVIDER",
@@ -23,6 +24,8 @@ PROVIDER_KEYS = {
 
 
 def configure_stream_encoding(stream: object) -> None:
+    """尽量把控制台输出切到 UTF-8，避免 Windows 下中文乱码。"""
+
     reconfigure = getattr(stream, "reconfigure", None)
     if callable(reconfigure):
         reconfigure(encoding="utf-8")
@@ -33,6 +36,8 @@ configure_stream_encoding(sys.stderr)
 
 
 def parse_args() -> argparse.Namespace:
+    """解析本地启动参数。"""
+
     parser = argparse.ArgumentParser(description="启动 AlphaEngine 前后端一体服务。")
     parser.add_argument("--host", default=DEFAULT_HOST, help="监听地址，默认 127.0.0.1。")
     parser.add_argument("--port", type=int, default=DEFAULT_PORT, help="起始端口，默认 8000。")
@@ -47,10 +52,13 @@ def parse_args() -> argparse.Namespace:
 
 
 def env_file_defines_market_provider(env_path: Path) -> bool:
+    """检查 .env 是否已经显式声明行情源。"""
+
     if not env_path.exists():
         return False
     for raw_line in env_path.read_text(encoding="utf-8").splitlines():
         line = raw_line.strip()
+        # 跳过空行、注释和非法行，避免把注释里的变量名误判为配置。
         if not line or line.startswith("#") or "=" not in line:
             continue
         key = line.split("=", 1)[0].strip()
@@ -60,18 +68,26 @@ def env_file_defines_market_provider(env_path: Path) -> bool:
 
 
 def apply_market_provider(args: argparse.Namespace, env: dict[str, str]) -> str:
+    """确定本次启动使用的行情源，并在需要时写入子进程环境变量。
+
+    优先级：命令行 --provider > 当前系统环境变量 > .env > 默认 hybrid。
+    """
+
     if args.provider:
         env["ALPHA_MARKET_DATA_PROVIDER"] = args.provider
         return args.provider
     if any(env.get(key) for key in PROVIDER_KEYS):
         return env.get("ALPHA_MARKET_DATA_PROVIDER") or env.get("MARKET_DATA_PROVIDER") or "hybrid"
     if env_file_defines_market_provider(ROOT_DIR / ".env"):
+        # .env 会由 pydantic-settings 在子进程里读取，这里只返回展示文本。
         return "来自 .env"
     env["ALPHA_MARKET_DATA_PROVIDER"] = "hybrid"
     return "hybrid"
 
 
 def port_is_available(host: str, port: int) -> bool:
+    """通过尝试 bind 判断端口是否可用。"""
+
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:
@@ -82,6 +98,8 @@ def port_is_available(host: str, port: int) -> bool:
 
 
 def find_available_port(host: str, start_port: int) -> int:
+    """从起始端口开始向后寻找可用端口。"""
+
     for port in range(start_port, start_port + 50):
         if port_is_available(host, port):
             return port
@@ -89,6 +107,11 @@ def find_available_port(host: str, start_port: int) -> int:
 
 
 def build_command(host: str, port: int, reload: bool) -> list[str]:
+    """构建 uvicorn 启动命令。
+
+    优先使用 uv run，能自动进入项目依赖环境；没有 uv 时退回当前 Python。
+    """
+
     uv_path = shutil.which("uv")
     if uv_path:
         command = [uv_path, "run", "uvicorn", "app.main:app"]
@@ -104,6 +127,8 @@ def build_command(host: str, port: int, reload: bool) -> list[str]:
 
 
 def wait_until_ready(url: str, timeout_seconds: float = 20) -> bool:
+    """轮询根路径，确认服务已经能接受请求。"""
+
     deadline = time.monotonic() + timeout_seconds
     while time.monotonic() < deadline:
         try:
@@ -115,6 +140,8 @@ def wait_until_ready(url: str, timeout_seconds: float = 20) -> bool:
 
 
 def main() -> int:
+    """本地开发的一键启动入口。"""
+
     args = parse_args()
     env = os.environ.copy()
     provider = apply_market_provider(args, env)
@@ -130,10 +157,12 @@ def main() -> int:
 
     process = subprocess.Popen(command, cwd=ROOT_DIR, env=env)
     try:
+        # 服务可访问后再打开浏览器，避免浏览器先出现连接失败页面。
         if wait_until_ready(url) and not args.no_browser:
             webbrowser.open(url)
         return process.wait()
     except KeyboardInterrupt:
+        # Ctrl+C 时优雅终止 uvicorn；若 8 秒内未退出，再强制结束。
         print("\n正在停止 AlphaEngine...")
         process.terminate()
         try:
