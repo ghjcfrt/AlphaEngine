@@ -6,14 +6,15 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.core.local_config import load_local_config
 
+DEFAULT_OPENAI_BASE_URL = "https://api.openai.com"
+DEFAULT_OPENAI_MODEL = "gpt-5.4-mini"
+
 AIProvider = Literal[
-    "auto",
     "openai",
     "openai_compatible",
     "gemini",
     "anthropic",
     "deepseek",
-    "mock",
     "disabled",
 ]
 AIModelFamily = Literal["gpt", "openai_compatible", "gemini", "claude", "deepseek"]
@@ -43,22 +44,20 @@ AI_PROVIDER_ALIASES = {
     "claude": "anthropic",
     "deepseek": "deepseek",
     "deep seek": "deepseek",
-    "mock": "mock",
-    "mock-ai": "mock",
-    "mock ai": "mock",
+    "mock": "openai",
+    "mock-ai": "openai",
+    "mock ai": "openai",
     "disabled": "disabled",
     "disable": "disabled",
     "off": "disabled",
-    "auto": "auto",
+    "auto": "openai",
 }
 AI_PROVIDER_LABELS = {
-    "auto": "Auto",
     "openai": "OpenAI",
     "openai_compatible": "OpenAI Compatible",
     "gemini": "Gemini",
     "anthropic": "Anthropic",
     "deepseek": "DeepSeek",
-    "mock": "Mock AI",
     "disabled": "Disabled",
 }
 
@@ -72,11 +71,11 @@ AI_AGENT_LABELS = {
 
 
 class AIModelSettings(BaseModel):
-    ai_advisor_provider: AIProvider = "mock"
+    ai_advisor_provider: AIProvider = "openai"
     ai_model_family: AIModelFamily = "gpt"
     openai_api_key: str | None = None
-    openai_base_url: str = "https://api.openai.com"
-    openai_model: str = "gpt-5.4-mini"
+    openai_base_url: str = DEFAULT_OPENAI_BASE_URL
+    openai_model: str = DEFAULT_OPENAI_MODEL
 
     @field_validator("ai_advisor_provider", mode="before")
     @classmethod
@@ -94,17 +93,24 @@ class AIModelSettings(BaseModel):
             self.ai_advisor_provider,
             self.ai_model_family,
         )
+        if self.ai_model_family == "openai_compatible":
+            if self.openai_base_url.strip().rstrip("/") == DEFAULT_OPENAI_BASE_URL:
+                self.openai_base_url = ""
+            if self.openai_model.strip() == DEFAULT_OPENAI_MODEL:
+                self.openai_model = ""
         return self
 
 
 class Settings(BaseSettings):
     app_name: str = "AlphaEngine"
-    market_data_provider: Literal["hybrid", "finnhub", "polygon", "eastmoney", "mock"] = Field(
+    market_data_provider: Literal[
+        "hybrid", "finnhub", "polygon", "alphavantage", "eastmoney"
+    ] = Field(
         default="hybrid",
         validation_alias=AliasChoices("ALPHA_MARKET_DATA_PROVIDER", "MARKET_DATA_PROVIDER"),
     )
     ai_advisor_provider: AIProvider = Field(
-        default="mock",
+        default="openai",
         validation_alias=AliasChoices("ALPHA_AI_ADVISOR_PROVIDER", "AI_ADVISOR_PROVIDER"),
     )
     openai_api_key: str | None = Field(
@@ -116,11 +122,11 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("ALPHA_AI_MODEL_FAMILY", "AI_MODEL_FAMILY"),
     )
     openai_base_url: str = Field(
-        default="https://api.openai.com",
+        default=DEFAULT_OPENAI_BASE_URL,
         validation_alias=AliasChoices("ALPHA_OPENAI_BASE_URL", "OPENAI_BASE_URL"),
     )
     openai_model: str = Field(
-        default="gpt-5.4-mini",
+        default=DEFAULT_OPENAI_MODEL,
         validation_alias=AliasChoices("ALPHA_OPENAI_MODEL", "OPENAI_MODEL"),
     )
     finnhub_api_key: str | None = Field(
@@ -131,8 +137,12 @@ class Settings(BaseSettings):
         default=None,
         validation_alias=AliasChoices("ALPHA_POLYGON_API_KEY", "POLYGON_API_KEY"),
     )
+    alpha_vantage_api_key: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("ALPHA_VANTAGE_API_KEY", "ALPHAVANTAGE_API_KEY"),
+    )
     request_timeout_seconds: float = Field(
-        default=10,
+        default=60,
         validation_alias=AliasChoices("ALPHA_REQUEST_TIMEOUT_SECONDS", "REQUEST_TIMEOUT_SECONDS"),
     )
     quote_cache_ttl_seconds: int = Field(

@@ -15,6 +15,7 @@ ALLOWED_KEYS = {
     "openai_model",
     "finnhub_api_key",
     "polygon_api_key",
+    "alpha_vantage_api_key",
     "request_timeout_seconds",
     "quote_cache_ttl_seconds",
 }
@@ -29,7 +30,10 @@ def load_local_config() -> dict[str, Any]:
         return {}
     if not isinstance(payload, dict):
         return {}
-    return {key: value for key, value in payload.items() if key in ALLOWED_KEYS}
+    config = {key: value for key, value in payload.items() if key in ALLOWED_KEYS}
+    if config.get("market_data_provider") == "mock":
+        config["market_data_provider"] = "hybrid"
+    return config
 
 
 def save_local_config(config: dict[str, Any]) -> None:

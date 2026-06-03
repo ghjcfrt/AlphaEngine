@@ -131,6 +131,69 @@ class PolygonMarketDataProvider:
             await self.client.aclose()
 
 
+class AlphaVantageMarketDataProvider:
+    name = "alphavantage"
+
+    def __init__(
+        self,
+        api_key: str | None,
+        timeout_seconds: float,
+        client: httpx.AsyncClient | None = None,
+    ) -> None:
+        self.api_key = _usable_api_key(api_key)
+        self._owns_client = client is None
+        self.client = client or httpx.AsyncClient(
+            base_url="https://www.alphavantage.co",
+            timeout=timeout_seconds,
+        )
+
+    async def get_quote(self, symbol: str) -> QuoteSnapshot:
+        if not self.api_key:
+            raise MarketDataError(
+                "ALPHA_VANTAGE_API_KEY is required for Alpha Vantage quotes."
+            )
+        query_symbol, display_symbol, currency = _alpha_vantage_symbol(symbol)
+        response = await self.client.get(
+            "/query",
+            params={
+                "function": "GLOBAL_QUOTE",
+                "symbol": query_symbol,
+                "apikey": self.api_key,
+            },
+        )
+        response.raise_for_status()
+        payload = response.json()
+        _raise_alpha_vantage_error(payload, display_symbol)
+        quote = payload.get("Global Quote")
+        if not isinstance(quote, dict) or not quote:
+            raise MarketDataError(f"Alpha Vantage returned no quote data for {display_symbol}.")
+
+        raw_symbol = str(quote.get("01. symbol") or query_symbol)
+        parsed_symbol = _alpha_vantage_display_symbol(raw_symbol) or display_symbol
+        current_price = _required_positive_float(quote.get("05. price"), parsed_symbol)
+
+        return QuoteSnapshot(
+            symbol=parsed_symbol,
+            current_price=current_price,
+            open_price=_optional_float(quote.get("02. open")),
+            previous_close=_optional_float(quote.get("08. previous close")),
+            high_price=_optional_float(quote.get("03. high")),
+            low_price=_optional_float(quote.get("04. low")),
+            change=_optional_float(quote.get("09. change")),
+            change_percent=_optional_percent(quote.get("10. change percent")),
+            currency=currency,
+            updated_at=_alpha_vantage_quote_date(quote.get("07. latest trading day")),
+            source=self.name,
+            is_realtime=False,
+            data_delay_seconds=None,
+            raw=payload,
+        )
+
+    async def close(self) -> None:
+        if self._owns_client:
+            await self.client.aclose()
+
+
 class EastmoneyAshareMarketDataProvider:
     name = "eastmoney-unofficial"
     fields = "f43,f44,f45,f46,f57,f58,f60,f86,f169,f170"
@@ -217,36 +280,25 @@ class HybridMarketDataProvider:
         await self.us_provider.close()
 
 
-class MockMarketDataProvider:
-    name = "mock"
+class UnconfiguredMarketDataProvider:
+    name = "unconfigured"
+
+    def __init__(self, reason: str) -> None:
+        self.reason = reason
 
     async def get_quote(self, symbol: str) -> QuoteSnapshot:
-        normalized = _normalize_symbol(symbol)
-        seed = sum(ord(char) for char in normalized)
-        price = round(20 + (seed % 400) + (seed % 17) / 10, 2)
-        previous_close = round(price * 0.992, 2)
-        return QuoteSnapshot(
-            symbol=normalized,
-            current_price=price,
-            open_price=round(price * 0.997, 2),
-            previous_close=previous_close,
-            high_price=round(price * 1.012, 2),
-            low_price=round(price * 0.985, 2),
-            change=round(price - previous_close, 2),
-            change_percent=round((price - previous_close) / previous_close * 100, 2),
-            updated_at=datetime.now(UTC),
-            source=self.name,
-            is_realtime=False,
-            data_delay_seconds=None,
-            raw={"mock": True},
-        )
+        raise MarketDataError(self.reason)
 
     async def close(self) -> None:
         return None
 
 
 class MarketDataService:
-    def __init__(self, provider: MarketDataProvider, cache_ttl_seconds: int = 2) -> None:
+    def __init__(
+        self,
+        provider: MarketDataProvider,
+        cache_ttl_seconds: int = 2,
+    ) -> None:
         self.provider = provider
         self.cache_ttl_seconds = cache_ttl_seconds
         self._cache: dict[str, tuple[float, QuoteSnapshot]] = {}
@@ -282,6 +334,11 @@ def build_market_data_service(settings: Settings) -> MarketDataService:
             api_key=settings.polygon_api_key,
             timeout_seconds=settings.request_timeout_seconds,
         )
+    elif settings.market_data_provider == "alphavantage":
+        provider = AlphaVantageMarketDataProvider(
+            api_key=settings.alpha_vantage_api_key,
+            timeout_seconds=settings.request_timeout_seconds,
+        )
     elif settings.market_data_provider == "eastmoney":
         provider = EastmoneyAshareMarketDataProvider(
             timeout_seconds=settings.request_timeout_seconds,
@@ -294,22 +351,34 @@ def build_market_data_service(settings: Settings) -> MarketDataService:
             us_provider=_build_us_market_data_provider(settings),
         )
     else:
-        provider = MockMarketDataProvider()
+        raise MarketDataError(f"Unsupported market data provider: {settings.market_data_provider}")
     return MarketDataService(provider, cache_ttl_seconds=settings.quote_cache_ttl_seconds)
 
 
 def _build_us_market_data_provider(settings: Settings) -> MarketDataProvider:
-    if settings.finnhub_api_key:
+    finnhub_api_key = _usable_api_key(settings.finnhub_api_key)
+    polygon_api_key = _usable_api_key(settings.polygon_api_key)
+    alpha_vantage_api_key = _usable_api_key(settings.alpha_vantage_api_key)
+
+    if finnhub_api_key:
         return FinnhubMarketDataProvider(
-            api_key=settings.finnhub_api_key,
+            api_key=finnhub_api_key,
             timeout_seconds=settings.request_timeout_seconds,
         )
-    if settings.polygon_api_key and settings.polygon_api_key != "replace-me":
+    if polygon_api_key:
         return PolygonMarketDataProvider(
-            api_key=settings.polygon_api_key,
+            api_key=polygon_api_key,
             timeout_seconds=settings.request_timeout_seconds,
         )
-    return MockMarketDataProvider()
+    if alpha_vantage_api_key:
+        return AlphaVantageMarketDataProvider(
+            api_key=alpha_vantage_api_key,
+            timeout_seconds=settings.request_timeout_seconds,
+        )
+    return UnconfiguredMarketDataProvider(
+        "Hybrid market data requires FINNHUB_API_KEY, POLYGON_API_KEY, "
+        "or ALPHA_VANTAGE_API_KEY for US symbols."
+    )
 
 
 def _normalize_symbol(symbol: str) -> str:
@@ -346,6 +415,21 @@ def _optional_float(value: Any) -> float | None:
         return None
 
 
+def _optional_percent(value: Any) -> float | None:
+    if isinstance(value, str):
+        value = value.strip().removesuffix("%")
+    return _optional_float(value)
+
+
+def _usable_api_key(value: str | None) -> str | None:
+    if not value:
+        return None
+    stripped = value.strip()
+    if not stripped or stripped == "replace-me":
+        return None
+    return stripped
+
+
 class AShareSymbol:
     def __init__(self, code: str, exchange: str) -> None:
         self.code = code
@@ -366,7 +450,7 @@ def _parse_ashare_symbol(symbol: str) -> AShareSymbol | None:
     if not normalized:
         return None
 
-    suffix_match = re.fullmatch(r"(\d{6})\.(SH|SS|SZ|BJ|BSE)", normalized)
+    suffix_match = re.fullmatch(r"(\d{6})\.(SH|SS|SHH|SZ|SHZ|BJ|BSE)", normalized)
     if suffix_match:
         code = suffix_match.group(1)
         exchange = _normalize_ashare_exchange(suffix_match.group(2))
@@ -387,9 +471,9 @@ def _parse_ashare_symbol(symbol: str) -> AShareSymbol | None:
 
 
 def _normalize_ashare_exchange(exchange: str) -> str:
-    if exchange in {"SH", "SS"}:
+    if exchange in {"SH", "SS", "SHH"}:
         return "SH"
-    if exchange == "SZ":
+    if exchange in {"SZ", "SHZ"}:
         return "SZ"
     return "BJ"
 
@@ -420,3 +504,38 @@ def _polygon_timestamp(value: Any) -> datetime:
     if timestamp > 10_000_000_000:
         return datetime.fromtimestamp(timestamp / 1_000, tz=UTC)
     return datetime.fromtimestamp(timestamp, tz=UTC)
+
+
+def _alpha_vantage_symbol(symbol: str) -> tuple[str, str, str]:
+    parsed = _parse_ashare_symbol(symbol)
+    if parsed is None:
+        normalized = _normalize_symbol(symbol)
+        return normalized, normalized, "USD"
+    exchange_suffix = {"SH": "SHH", "SZ": "SHZ"}.get(parsed.exchange, parsed.exchange)
+    return f"{parsed.code}.{exchange_suffix}", parsed.display_symbol, "CNY"
+
+
+def _alpha_vantage_display_symbol(symbol: str) -> str | None:
+    normalized = symbol.strip().upper()
+    if not normalized:
+        return None
+    parsed = _parse_ashare_symbol(normalized)
+    if parsed is not None:
+        return parsed.display_symbol
+    return normalized
+
+
+def _alpha_vantage_quote_date(value: Any) -> datetime:
+    if isinstance(value, str) and value.strip():
+        try:
+            return datetime.strptime(value.strip(), "%Y-%m-%d").replace(tzinfo=UTC)
+        except ValueError:
+            return datetime.now(UTC)
+    return datetime.now(UTC)
+
+
+def _raise_alpha_vantage_error(payload: dict[str, Any], symbol: str) -> None:
+    for key in ("Error Message", "Information", "Note"):
+        message = payload.get(key)
+        if isinstance(message, str) and message.strip():
+            raise MarketDataError(f"Alpha Vantage quote error for {symbol}: {message.strip()}")

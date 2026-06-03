@@ -1,13 +1,14 @@
 from math import sqrt
 from typing import Any
 
+import httpx
 from pydantic import ValidationError
 
 from app.acp.bus import InMemoryACPBus
 from app.acp.message import ACPMessage
 from app.agents.base import BaseAgent
 from app.domain.schemas import AllocationPlan, ProjectionPoint, QuoteSnapshot, ReturnAnalysis
-from app.services.ai_advisor import AIAdvisorError, AIAdvisorJSONService
+from app.services.ai_advisor import AIAdvisorError, AIAdvisorJSONService, describe_ai_error
 
 
 class ReturnAnalysisAgent(BaseAgent):
@@ -55,8 +56,10 @@ class ReturnAnalysisAgent(BaseAgent):
                 f"AI协作: {self.ai_advisor_service.provider_name} 已复核收益情景。"
             )
             return analysis
-        except (AIAdvisorError, ValidationError, ValueError) as exc:
-            baseline.quote_summary.append(f"AI协作失败，已回退规则基线：{exc}")
+        except (AIAdvisorError, httpx.HTTPError, ValidationError, ValueError) as exc:
+            baseline.quote_summary.append(
+                f"AI协作失败，已回退规则基线：{describe_ai_error(exc)}"
+            )
             return baseline
 
     @staticmethod

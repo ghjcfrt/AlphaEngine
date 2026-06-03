@@ -1,5 +1,6 @@
 from statistics import mean
 
+import httpx
 from pydantic import ValidationError
 
 from app.acp.bus import InMemoryACPBus
@@ -12,7 +13,7 @@ from app.domain.schemas import (
     RiskAssessment,
     RiskLevel,
 )
-from app.services.ai_advisor import AIAdvisorError, AIAdvisorJSONService
+from app.services.ai_advisor import AIAdvisorError, AIAdvisorJSONService, describe_ai_error
 
 
 class RiskAssessmentAgent(BaseAgent):
@@ -52,8 +53,8 @@ class RiskAssessmentAgent(BaseAgent):
                 f"AI协作: {self.ai_advisor_service.provider_name} 已复核风险画像。"
             )
             return assessment
-        except (AIAdvisorError, ValidationError, ValueError) as exc:
-            baseline.rationale.append(f"AI协作失败，已回退规则基线：{exc}")
+        except (AIAdvisorError, httpx.HTTPError, ValidationError, ValueError) as exc:
+            baseline.rationale.append(f"AI协作失败，已回退规则基线：{describe_ai_error(exc)}")
             return baseline
 
     @staticmethod

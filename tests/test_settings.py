@@ -20,41 +20,44 @@ def test_runtime_settings_are_saved_locally(monkeypatch, tmp_path) -> None:
         response = client.put(
             "/api/v1/settings",
             json={
-                "market_data_provider": "mock",
-                "ai_advisor_provider": "mock",
+                "market_data_provider": "hybrid",
+                "ai_advisor_provider": "openai",
                 "ai_model_family": "gemini",
                 "openai_base_url": "https://models.example.com",
                 "openai_model": "custom-model",
                 "openai_api_key": "test-openai-key",
                 "finnhub_api_key": "test-finnhub-key",
+                "alpha_vantage_api_key": "test-alpha-vantage-key",
             },
         )
 
         assert response.status_code == 200
         payload = response.json()
-        assert payload["market_data_provider"] == "mock"
-        assert payload["ai_advisor_provider"] == "mock"
+        assert payload["market_data_provider"] == "hybrid"
+        assert payload["ai_advisor_provider"] == "gemini"
         assert payload["ai_model_family"] == "gemini"
         assert payload["openai_base_url"] == "https://models.example.com"
         assert payload["openai_model"] == "custom-model"
-        assert payload["ai_runtime_provider"] == "Mock AI"
-        assert payload["ai_runtime_model"] is None
-        assert payload["ai_is_model_generated"] is False
+        assert payload["ai_runtime_provider"] == "Gemini"
+        assert payload["ai_runtime_model"] == "custom-model"
+        assert payload["ai_is_model_generated"] is True
         assert payload["ai_agents"]["risk_assessment"]["ai_model_family"] == "gemini"
-        assert payload["ai_agents"]["risk_assessment"]["ai_runtime_provider"] == "Mock AI"
+        assert payload["ai_agents"]["risk_assessment"]["ai_runtime_provider"] == "Gemini"
         assert payload["has_openai_api_key"] is True
         assert payload["has_finnhub_api_key"] is True
+        assert payload["has_alpha_vantage_api_key"] is True
 
         health = client.get("/health").json()
-        assert health["market_data_provider"] == "mock"
-        assert health["ai_advisor_provider"] == "mock"
-        assert health["ai_runtime_provider"] == "Mock AI"
-        assert health["ai_is_model_generated"] is False
-        assert health["ai_agents"]["ai_advisor"]["ai_runtime_provider"] == "Mock AI"
+        assert health["market_data_provider"] == "hybrid"
+        assert health["ai_advisor_provider"] == "gemini"
+        assert health["ai_runtime_provider"] == "Gemini"
+        assert health["ai_is_model_generated"] is True
+        assert health["ai_agents"]["ai_advisor"]["ai_runtime_provider"] == "Gemini"
 
     saved = json.loads(config_path.read_text(encoding="utf-8"))
     assert saved["openai_api_key"] == "test-openai-key"
     assert saved["finnhub_api_key"] == "test-finnhub-key"
+    assert saved["alpha_vantage_api_key"] == "test-alpha-vantage-key"
 
 
 def test_runtime_settings_can_clear_saved_key(monkeypatch, tmp_path) -> None:
@@ -64,8 +67,8 @@ def test_runtime_settings_can_clear_saved_key(monkeypatch, tmp_path) -> None:
     config_path.write_text(
         json.dumps(
             {
-                "market_data_provider": "mock",
-                "ai_advisor_provider": "mock",
+                "market_data_provider": "hybrid",
+                "ai_advisor_provider": "openai",
                 "openai_api_key": "test-openai-key",
             }
         ),
@@ -97,7 +100,7 @@ def test_runtime_settings_support_multiple_ai_agent_families(monkeypatch, tmp_pa
         response = client.put(
             "/api/v1/settings",
             json={
-                "market_data_provider": "mock",
+                "market_data_provider": "hybrid",
                 "ai_agents": {
                     "risk_assessment": {
                         "ai_advisor_provider": "Gemini",
@@ -121,10 +124,11 @@ def test_runtime_settings_support_multiple_ai_agent_families(monkeypatch, tmp_pa
                         "openai_api_key": "return-key",
                     },
                     "compliance_review": {
-                        "ai_advisor_provider": "mock",
+                        "ai_advisor_provider": "OpenAI",
                         "ai_model_family": "gpt",
                         "openai_base_url": "https://api.openai.com",
                         "openai_model": "gpt-5.4-mini",
+                        "openai_api_key": "compliance-key",
                     },
                     "ai_advisor": {
                         "ai_advisor_provider": "OpenAI",
@@ -149,7 +153,7 @@ def test_runtime_settings_support_multiple_ai_agent_families(monkeypatch, tmp_pa
         assert agents["return_analysis"]["ai_model_family"] == "deepseek"
         assert agents["return_analysis"]["ai_advisor_provider"] == "deepseek"
         assert agents["return_analysis"]["ai_runtime_provider"] == "DeepSeek"
-        assert agents["compliance_review"]["ai_is_model_generated"] is False
+        assert agents["compliance_review"]["ai_is_model_generated"] is True
         assert agents["ai_advisor"]["ai_advisor_provider"] == "openai"
         assert agents["ai_advisor"]["ai_runtime_provider"] == "OpenAI"
 

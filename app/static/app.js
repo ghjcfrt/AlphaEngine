@@ -2,8 +2,20 @@ const state = {
   plan: null,
   lastSymbols: [],
   activeTab: "ai",
+  amountCurrency: "CNY",
   settings: null,
+  isLoading: false,
 };
+
+const storageKeys = {
+  planDraft: "alphaengine.planDraft.v1",
+  planResult: "alphaengine.planResult.v1",
+  settingsDraft: "alphaengine.settingsDraft.v1",
+};
+const savedSecretMask = "********";
+const defaultOpenAiBaseUrl = "https://api.openai.com";
+const defaultOpenAiModel = "gpt-5.4-mini";
+const defaultAmountCurrency = "CNY";
 
 const colors = ["#0d7c66", "#2f6fbb", "#bb7a14", "#7a5cbd", "#bf3f37", "#3d7f8f"];
 
@@ -12,6 +24,24 @@ const riskLabels = {
   balanced: "均衡",
   growth: "成长",
   aggressive: "进取",
+};
+const liquidityLabels = {
+  low: "低",
+  medium: "中",
+  high: "高",
+};
+const objectiveLabels = {
+  capital_preservation: "保值",
+  income: "收入",
+  balanced: "均衡",
+  growth: "成长",
+};
+const amountCurrencyLabels = {
+  CNY: "RMB",
+  USD: "USD",
+  HKD: "HKD",
+  EUR: "EUR",
+  JPY: "JPY",
 };
 
 const fieldLabels = ["亏损承受", "长期持有", "波动接受", "成长偏好", "经验信心"];
@@ -37,21 +67,24 @@ const aiProviderLabels = {
   anthropic: "Anthropic",
   claude: "Anthropic",
   deepseek: "DeepSeek",
-  mock: "Mock AI",
-  mock_ai: "Mock AI",
   disabled: "Disabled",
   gpt: "OpenAI",
 };
 const aiFamilyLabels = {
   gpt: "OpenAI Responses",
-  openai_compatible: "OpenAI Chat Compatible",
-  gemini: "Gemini",
-  claude: "Anthropic Claude",
-  deepseek: "DeepSeek",
+  openai_compatible: "Openai Compatible",
+  gemini: "Gemini GenerateContent",
+  claude: "Anthropic Messages",
+  deepseek: "DeepSeek Chat",
 };
 const familyHints = {
-  gpt: { url: "https://api.openai.com", model: "gpt-5.4-mini" },
-  openai_compatible: { url: "https://api.openai.com", model: "gpt-5.4-mini" },
+  gpt: { url: defaultOpenAiBaseUrl, model: defaultOpenAiModel },
+  openai_compatible: {
+    url: "",
+    urlPlaceholder: "https://your-openai-compatible-api.example.com",
+    model: "",
+    modelPlaceholder: "your-model-name",
+  },
   gemini: { url: "https://generativelanguage.googleapis.com", model: "gemini-2.5-flash" },
   claude: { url: "https://api.anthropic.com", model: "claude-sonnet-4-5" },
   deepseek: { url: "https://api.deepseek.com", model: "deepseek-v4.1" },
@@ -80,6 +113,56 @@ const aiAgentRoleNames = {
 
 const $ = (selector) => document.querySelector(selector);
 
+function readStoredJson(key) {
+  try {
+    const value = window.localStorage.getItem(key);
+    return value ? JSON.parse(value) : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeStoredJson(key, value) {
+  try {
+    window.localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    // Persistence is a convenience; the app should keep working without it.
+  }
+}
+
+function removeStoredJson(key) {
+  try {
+    window.localStorage.removeItem(key);
+  } catch {
+    // Ignore unavailable storage.
+  }
+}
+
+function setFormValue(fields, name, value) {
+  const field = fields.namedItem(name);
+  if (!field || value === undefined || value === null) {
+    return;
+  }
+  field.value = value;
+}
+
+function setFormChecked(fields, name, value) {
+  const field = fields.namedItem(name);
+  if (!field || value === undefined || value === null) {
+    return;
+  }
+  field.checked = Boolean(value);
+}
+
+function setRadioValue(form, name, value) {
+  if (value === undefined || value === null) {
+    return;
+  }
+  form.querySelectorAll(`[name="${name}"]`).forEach((input) => {
+    input.checked = input.value === value;
+  });
+}
+
 function currentAiEnabled(agentId) {
   const aiKey = agentIdToAiKey[agentId] || "ai_advisor";
   return state.settings?.ai_agents?.[aiKey]?.ai_is_model_generated === true;
@@ -88,15 +171,18 @@ function currentAiEnabled(agentId) {
 function formatAiRuntime(source) {
   if (source.ai_agents) {
     const agents = Object.values(source.ai_agents);
-    const enabled = agents.filter((agent) => agent.ai_is_model_generated).length;
-    const families = [...new Set(agents.map((agent) => formatAiFamily(agent.ai_model_family)))].join(
-      " / "
-    );
-    return `${enabled}/${agents.length} 个 AI Agent · ${families || "未配置"}`;
+    const enabledAgents = agents.filter((agent) => agent.ai_is_model_generated);
+    if (!enabledAgents.length) {
+      return `0/${agents.length} 个模型 Agent · 未调用模型`;
+    }
+    const families = [
+      ...new Set(enabledAgents.map((agent) => formatAiFamily(agent.ai_model_family))),
+    ].join(" / ");
+    return `${enabledAgents.length}/${agents.length} 个模型 Agent · ${families || "未配置"}`;
   }
   const provider = formatAiProvider(source.ai_runtime_provider || source.ai_advisor_provider || "-");
   const model = source.ai_runtime_model ? ` · ${source.ai_runtime_model}` : "";
-  const mode = source.ai_is_model_generated ? "模型生成" : "规则/模拟";
+  const mode = source.ai_is_model_generated ? "模型生成" : "未调用模型";
   return `${provider}${model} · ${mode}`;
 }
 
@@ -116,6 +202,49 @@ function formatAiProvider(value) {
 function formatAiFamily(value) {
   const key = normalizedAiKey(value);
   return aiFamilyLabels[key] || value || "-";
+}
+
+function hintUrl(hints) {
+  return hints.urlPlaceholder || hints.url || "";
+}
+
+function hintModel(hints) {
+  return hints.modelPlaceholder || hints.model || "";
+}
+
+function displayAiBaseUrl(config, family) {
+  const value = String(config?.openai_base_url || "").trim();
+  if (family === "openai_compatible" && value === defaultOpenAiBaseUrl) {
+    return "";
+  }
+  return value || (familyHints[family] || familyHints.gpt).url || "";
+}
+
+function displayAiModel(config, family) {
+  const value = String(config?.openai_model || "").trim();
+  if (family === "openai_compatible" && value === defaultOpenAiModel) {
+    return "";
+  }
+  return value || (familyHints[family] || familyHints.gpt).model || "";
+}
+
+function modelInterfaceFromValues(provider, family) {
+  const normalizedProvider = normalizedAiKey(provider);
+  if (normalizedProvider === "disabled") {
+    return normalizedProvider;
+  }
+  return normalizedAiKey(family) || "gpt";
+}
+
+function providerForModelInterface(interfaceType) {
+  if (interfaceType === "disabled") {
+    return interfaceType;
+  }
+  return familyToProvider[interfaceType] || "openai";
+}
+
+function familyForModelInterface(interfaceType) {
+  return familyHints[interfaceType] ? interfaceType : "gpt";
 }
 
 function agentRole(agentId) {
@@ -141,12 +270,43 @@ function escapeHtml(value) {
     .replaceAll("'", "&#39;");
 }
 
-function formatMoney(value, currency = "USD") {
-  return new Intl.NumberFormat("zh-CN", {
-    style: "currency",
-    currency,
-    maximumFractionDigits: 2,
-  }).format(value ?? 0);
+function formatMoney(value, currency = defaultAmountCurrency) {
+  const resolvedCurrency = normalizeCurrencyCode(currency);
+  try {
+    return new Intl.NumberFormat("zh-CN", {
+      style: "currency",
+      currency: resolvedCurrency,
+      maximumFractionDigits: 2,
+    }).format(value ?? 0);
+  } catch {
+    return new Intl.NumberFormat("zh-CN", {
+      style: "currency",
+      currency: defaultAmountCurrency,
+      maximumFractionDigits: 2,
+    }).format(value ?? 0);
+  }
+}
+
+function normalizeCurrencyCode(value, fallback = defaultAmountCurrency) {
+  const normalized = String(value || defaultAmountCurrency)
+    .trim()
+    .toUpperCase();
+  const alias = normalized === "RMB" ? "CNY" : normalized;
+  return /^[A-Z]{3}$/.test(alias) ? alias : fallback;
+}
+
+function normalizeAmountCurrency(value) {
+  const currency = normalizeCurrencyCode(value);
+  return amountCurrencyLabels[currency] ? currency : defaultAmountCurrency;
+}
+
+function activeAmountCurrency() {
+  return normalizeAmountCurrency(state.amountCurrency || defaultAmountCurrency);
+}
+
+function formatAmountCurrency(value) {
+  const currency = normalizeAmountCurrency(value);
+  return amountCurrencyLabels[currency] || currency;
 }
 
 function formatPercent(value) {
@@ -168,6 +328,23 @@ function formatDate(value) {
   }).format(new Date(value));
 }
 
+function formatDateTime(value) {
+  if (!value) {
+    return "-";
+  }
+  return new Intl.DateTimeFormat("zh-CN", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(value));
+}
+
+function labelFor(value, labels) {
+  return labels[value] || value || "-";
+}
+
 function showToast(message) {
   const toast = $("#toast");
   toast.textContent = message;
@@ -177,9 +354,18 @@ function showToast(message) {
 }
 
 function setLoading(isLoading) {
+  state.isLoading = isLoading;
   $("#emptyState").classList.toggle("hidden", isLoading || Boolean(state.plan));
   $("#loadingState").classList.toggle("hidden", !isLoading);
   $("#results").classList.toggle("hidden", isLoading || !state.plan);
+  updateExportButton();
+}
+
+function updateExportButton() {
+  const button = $("#exportResult");
+  if (button) {
+    button.disabled = state.isLoading || !state.plan;
+  }
 }
 
 function buildRiskSliders() {
@@ -209,8 +395,19 @@ function addPosition(position = {}) {
   node.querySelector('[data-field="symbol"]').value = position.symbol ?? "";
   node.querySelector('[data-field="quantity"]').value = position.quantity ?? "";
   node.querySelector('[data-field="average_cost"]').value = position.average_cost ?? "";
-  node.querySelector(".remove-position").addEventListener("click", () => node.remove());
+  node.querySelector(".remove-position").addEventListener("click", () => {
+    node.remove();
+    savePlanDraft();
+  });
   $("#positions").appendChild(node);
+}
+
+function collectPositionDrafts() {
+  return [...document.querySelectorAll(".position-row")].map((row) => ({
+    symbol: row.querySelector('[data-field="symbol"]').value,
+    quantity: row.querySelector('[data-field="quantity"]').value,
+    average_cost: row.querySelector('[data-field="average_cost"]').value,
+  }));
 }
 
 function collectPositions() {
@@ -225,6 +422,79 @@ function collectPositions() {
     .filter((position) => position.symbol && position.quantity > 0);
 }
 
+function collectPlanDraft() {
+  const form = $("#planForm");
+  const fields = form.elements;
+  return {
+    user_id: fields.namedItem("user_id").value,
+    amount_currency: normalizeAmountCurrency(fields.namedItem("amount_currency").value),
+    age: fields.namedItem("age").value,
+    annual_income: fields.namedItem("annual_income").value,
+    net_worth: fields.namedItem("net_worth").value,
+    initial_capital: fields.namedItem("initial_capital").value,
+    investment_horizon_years: fields.namedItem("investment_horizon_years").value,
+    liquidity_need: form.querySelector('[name="liquidity_need"]:checked')?.value || "",
+    investment_objective:
+      form.querySelector('[name="investment_objective"]:checked')?.value || "",
+    risk_answers: [...document.querySelectorAll(".slider-row input")].map((input) => input.value),
+    symbols: fields.namedItem("symbols").value,
+    current_positions: collectPositionDrafts(),
+    include_acp_trace: fields.namedItem("include_acp_trace").checked,
+  };
+}
+
+function savePlanDraft() {
+  if (!$("#planForm")) {
+    return;
+  }
+  writeStoredJson(storageKeys.planDraft, collectPlanDraft());
+}
+
+function restorePlanDraft() {
+  const draft = readStoredJson(storageKeys.planDraft);
+  if (!draft || typeof draft !== "object") {
+    return false;
+  }
+
+  const form = $("#planForm");
+  const fields = form.elements;
+  [
+    "user_id",
+    "amount_currency",
+    "age",
+    "annual_income",
+    "net_worth",
+    "initial_capital",
+    "investment_horizon_years",
+    "symbols",
+  ].forEach((name) => setFormValue(fields, name, draft[name]));
+  state.amountCurrency = normalizeAmountCurrency(fields.namedItem("amount_currency").value);
+  setRadioValue(form, "liquidity_need", draft.liquidity_need);
+  setRadioValue(form, "investment_objective", draft.investment_objective);
+  setFormChecked(fields, "include_acp_trace", draft.include_acp_trace);
+  applyRiskAnswers(draft.risk_answers);
+
+  if (Array.isArray(draft.current_positions)) {
+    $("#positions").innerHTML = "";
+    draft.current_positions.forEach((position) => addPosition(position));
+  }
+  return true;
+}
+
+function applyRiskAnswers(values) {
+  if (!Array.isArray(values)) {
+    return;
+  }
+  document.querySelectorAll(".slider-row input").forEach((input, index) => {
+    if (values[index] === undefined || values[index] === null) {
+      return;
+    }
+    input.value = values[index];
+    input.previousElementSibling.value = input.value;
+    input.previousElementSibling.textContent = input.value;
+  });
+}
+
 function buildPayload(form) {
   const data = new FormData(form);
   const symbols = String(data.get("symbols") || "")
@@ -236,6 +506,7 @@ function buildPayload(form) {
     user_id: String(data.get("user_id")),
     profile: {
       age: Number(data.get("age")),
+      amount_currency: normalizeAmountCurrency(data.get("amount_currency")),
       annual_income: Number(data.get("annual_income")),
       net_worth: Number(data.get("net_worth")),
       initial_capital: Number(data.get("initial_capital")),
@@ -297,7 +568,7 @@ function renderAiAgentSettings(aiAgents) {
       const config = aiAgents[agentKey];
       const title = config?.label || agentKey;
       const role = aiAgentRoleNames[agentKey] || "AI";
-      const mode = config?.ai_is_model_generated ? "模型生成" : "规则/模拟";
+      const mode = config?.ai_is_model_generated ? "模型生成" : "未调用模型";
       const runtimeProvider = formatAiProvider(config?.ai_runtime_provider);
       const runtime = config?.ai_runtime_model
         ? `${runtimeProvider} · ${config.ai_runtime_model}`
@@ -305,48 +576,50 @@ function renderAiAgentSettings(aiAgents) {
       const keyState = config?.has_openai_api_key
         ? "已保存 API Key，勾选后清除"
         : "未保存 API Key";
-      const savedProvider = normalizedAiKey(config?.ai_advisor_provider);
-      const provider =
-        savedProvider && savedProvider !== "auto"
-          ? savedProvider
-          : config?.has_openai_api_key
-            ? familyToProvider[normalizedAiKey(config?.ai_model_family)] || "openai"
-            : "mock";
-      const family = config?.ai_model_family || "gpt";
+      const keyMask = config?.has_openai_api_key ? savedSecretMask : "";
+      const keyPlaceholder = config?.has_openai_api_key
+        ? "已保存，输入新 Key 可替换"
+        : "留空则不修改";
+      const provider = normalizedAiKey(config?.ai_advisor_provider) || "openai";
+      const family = normalizedAiKey(config?.ai_model_family) || providerToFamily[provider] || "gpt";
+      const modelInterface = modelInterfaceFromValues(provider, family);
       const hints = familyHints[family] || familyHints.gpt;
+      const baseUrl = displayAiBaseUrl(config, family);
+      const model = displayAiModel(config, family);
       return `
         <div class="ai-agent-card" data-agent-key="${agentKey}">
           <header>
-            <strong>${escapeHtml(title)}</strong>
-            <span>${escapeHtml(role)} · ${escapeHtml(mode)} · ${escapeHtml(runtime)}</span>
+            <div class="ai-agent-heading">
+              <strong>${escapeHtml(title)}</strong>
+              <span>${escapeHtml(role)} · ${escapeHtml(mode)} · ${escapeHtml(runtime)}</span>
+            </div>
+            <button class="small-button apply-ai-config" type="button" data-action="apply-ai-config" title="用此 Agent 配置覆盖其它全部 AI Agent">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M8 8h10v10H8z" />
+                <path d="M6 16H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+              </svg>
+              应用到全部
+            </button>
           </header>
           <label>
-            <span>AI 提供方</span>
-            <select data-ai-field="ai_advisor_provider">
-              ${aiProviderOptions(provider)}
-            </select>
-          </label>
-          <label>
             <span>模型接口类型</span>
-            <select data-ai-field="ai_model_family">
-              ${aiFamilyOptions(family)}
+            <select data-ai-field="model_interface">
+              ${modelInterfaceOptions(modelInterface)}
             </select>
           </label>
+          <input data-ai-field="ai_advisor_provider" type="hidden" value="${escapeHtml(provider)}" />
+          <input data-ai-field="ai_model_family" type="hidden" value="${escapeHtml(family)}" />
           <label class="wide-field">
             <span>模型 API URL</span>
-            <input data-ai-field="openai_base_url" value="${escapeHtml(
-              config?.openai_base_url || hints.url
-            )}" placeholder="${escapeHtml(hints.url)}" />
+            <input data-ai-field="openai_base_url" value="${escapeHtml(baseUrl)}" placeholder="${escapeHtml(hintUrl(hints))}" />
           </label>
           <label>
             <span>模型名称</span>
-            <input data-ai-field="openai_model" value="${escapeHtml(
-              config?.openai_model || hints.model
-            )}" placeholder="${escapeHtml(hints.model)}" />
+            <input data-ai-field="openai_model" value="${escapeHtml(model)}" placeholder="${escapeHtml(hintModel(hints))}" />
           </label>
           <label>
             <span>模型 API Key</span>
-            <input data-ai-field="openai_api_key" type="password" autocomplete="off" placeholder="留空则不修改" />
+            <input data-ai-field="openai_api_key" type="password" autocomplete="off" value="${keyMask}" data-secret-masked="${config?.has_openai_api_key ? "true" : "false"}" placeholder="${escapeHtml(keyPlaceholder)}" />
           </label>
           <label class="trace-toggle wide-field">
             <input data-ai-field="clear_openai_api_key" type="checkbox" />
@@ -356,42 +629,34 @@ function renderAiAgentSettings(aiAgents) {
       `;
     })
     .join("");
-  container.querySelectorAll('[data-ai-field="ai_model_family"]').forEach((select) => {
-    select.addEventListener("change", () => {
-      const card = select.closest(".ai-agent-card");
-      syncProviderFromFamily(card);
-      applyFamilyHints(card);
+  container.querySelectorAll('[data-ai-field="model_interface"]').forEach((select) => {
+    select.addEventListener("change", () => applyModelInterfaceDefaults(select.closest(".ai-agent-card")));
+  });
+  container.querySelectorAll('[data-ai-field="openai_api_key"]').forEach((input) => {
+    input.addEventListener("input", () => {
+      if (input.value !== savedSecretMask) {
+        input.dataset.secretMasked = "false";
+      }
+    });
+    input.addEventListener("focus", () => {
+      if (isSavedSecretInput(input)) {
+        input.select();
+      }
     });
   });
-  container.querySelectorAll('[data-ai-field="ai_advisor_provider"]').forEach((select) => {
-    select.addEventListener("change", () => applyProviderDefaults(select.closest(".ai-agent-card")));
+  container.querySelectorAll('[data-action="apply-ai-config"]').forEach((button) => {
+    button.addEventListener("click", () => applyAiConfigToAll(button.closest(".ai-agent-card")));
   });
 }
 
-function aiProviderOptions(selected) {
+function modelInterfaceOptions(selected) {
   return [
-    ["openai", "OpenAI"],
-    ["openai_compatible", "OpenAI Compatible"],
-    ["gemini", "Gemini"],
-    ["anthropic", "Anthropic"],
-    ["deepseek", "DeepSeek"],
-    ["mock", "Mock AI"],
-    ["disabled", "Disabled"],
-  ]
-    .map(
-      ([value, label]) =>
-        `<option value="${value}" ${value === selected ? "selected" : ""}>${label}</option>`
-    )
-    .join("");
-}
-
-function aiFamilyOptions(selected) {
-  return [
-    ["gpt", "GPT / OpenAI Responses"],
-    ["openai_compatible", "OpenAI Chat 兼容"],
-    ["gemini", "Gemini"],
-    ["claude", "Anthropic / Claude"],
-    ["deepseek", "DeepSeek"],
+    ["gpt", "OpenAI Responses"],
+    ["openai_compatible", "Openai Compatible"],
+    ["gemini", "Gemini GenerateContent"],
+    ["claude", "Anthropic Messages"],
+    ["deepseek", "DeepSeek Chat"],
+    ["disabled", "禁用"],
   ]
     .map(
       ([value, label]) =>
@@ -407,17 +672,200 @@ function renderSettingsState(settings) {
   fields.namedItem("market_data_provider").value = settings.market_data_provider;
   fields.namedItem("finnhub_api_key").value = "";
   fields.namedItem("polygon_api_key").value = "";
+  fields.namedItem("alpha_vantage_api_key").value = "";
   fields.namedItem("clear_finnhub_api_key").checked = false;
   fields.namedItem("clear_polygon_api_key").checked = false;
+  fields.namedItem("clear_alpha_vantage_api_key").checked = false;
   $("#finnhubKeyState").textContent = settings.has_finnhub_api_key
     ? "已保存 Finnhub API Key，勾选后清除"
     : "未保存 Finnhub API Key";
   $("#polygonKeyState").textContent = settings.has_polygon_api_key
     ? "已保存 Polygon API Key，勾选后清除"
     : "未保存 Polygon API Key";
+  $("#alphaVantageKeyState").textContent = settings.has_alpha_vantage_api_key
+    ? "已保存 Alpha Vantage API Key，勾选后清除"
+    : "未保存 Alpha Vantage API Key";
   $("#configPath").textContent = settings.local_config_path;
   $("#providerStatus").textContent = settings.market_data_provider;
   $("#aiProviderStatus").textContent = formatAiRuntime(settings);
+  restoreSettingsDraft();
+}
+
+function collectAiAgentDrafts() {
+  const aiAgents = {};
+  document.querySelectorAll(".ai-agent-card").forEach((card) => {
+    const agentKey = card.dataset.agentKey;
+    const apiKeyField = aiField(card, "openai_api_key");
+    aiAgents[agentKey] = {
+      ai_advisor_provider: fieldValue(card, "ai_advisor_provider"),
+      ai_model_family: fieldValue(card, "ai_model_family"),
+      openai_base_url: fieldValue(card, "openai_base_url"),
+      openai_model: fieldValue(card, "openai_model"),
+      clear_openai_api_key: fieldChecked(card, "clear_openai_api_key"),
+    };
+    if (!isSavedSecretInput(apiKeyField)) {
+      aiAgents[agentKey].openai_api_key = apiKeyField?.value || "";
+    }
+  });
+  return aiAgents;
+}
+
+function collectSettingsDraft() {
+  const form = $("#settingsForm");
+  if (!form) {
+    return null;
+  }
+  const fields = form.elements;
+  return {
+    market_data_provider: fields.namedItem("market_data_provider").value,
+    finnhub_api_key: fields.namedItem("finnhub_api_key").value,
+    polygon_api_key: fields.namedItem("polygon_api_key").value,
+    alpha_vantage_api_key: fields.namedItem("alpha_vantage_api_key").value,
+    clear_finnhub_api_key: fields.namedItem("clear_finnhub_api_key").checked,
+    clear_polygon_api_key: fields.namedItem("clear_polygon_api_key").checked,
+    clear_alpha_vantage_api_key: fields.namedItem("clear_alpha_vantage_api_key").checked,
+    ai_agents: collectAiAgentDrafts(),
+  };
+}
+
+function saveSettingsDraft(draft = collectSettingsDraft()) {
+  if (!draft) {
+    return;
+  }
+  writeStoredJson(storageKeys.settingsDraft, draft);
+}
+
+function restoreSettingsDraft() {
+  const draft = readStoredJson(storageKeys.settingsDraft);
+  applySettingsDraft(draft);
+}
+
+function applySettingsDraft(draft) {
+  if (!draft || typeof draft !== "object") {
+    return;
+  }
+  const form = $("#settingsForm");
+  const fields = form.elements;
+
+  setFormValue(fields, "market_data_provider", draft.market_data_provider);
+  setFormValue(fields, "finnhub_api_key", draft.finnhub_api_key);
+  setFormValue(fields, "polygon_api_key", draft.polygon_api_key);
+  setFormValue(fields, "alpha_vantage_api_key", draft.alpha_vantage_api_key);
+  setFormChecked(fields, "clear_finnhub_api_key", draft.clear_finnhub_api_key);
+  setFormChecked(fields, "clear_polygon_api_key", draft.clear_polygon_api_key);
+  setFormChecked(
+    fields,
+    "clear_alpha_vantage_api_key",
+    draft.clear_alpha_vantage_api_key
+  );
+
+  if (!draft.ai_agents || typeof draft.ai_agents !== "object") {
+    return;
+  }
+  document.querySelectorAll(".ai-agent-card").forEach((card) => {
+    const agentDraft = draft.ai_agents[card.dataset.agentKey];
+    if (!agentDraft || typeof agentDraft !== "object") {
+      return;
+    }
+    setAiFieldValue(card, "ai_advisor_provider", agentDraft.ai_advisor_provider);
+    setAiFieldValue(card, "ai_model_family", agentDraft.ai_model_family);
+    syncModelInterfaceField(card);
+    setAiFieldValue(card, "openai_base_url", agentDraft.openai_base_url);
+    setAiFieldValue(card, "openai_model", agentDraft.openai_model);
+    setAiFieldValue(card, "openai_api_key", agentDraft.openai_api_key);
+    setAiFieldChecked(card, "clear_openai_api_key", agentDraft.clear_openai_api_key);
+    applyFamilyHints(card);
+  });
+}
+
+function collectAiCardConfig(card) {
+  const apiKeyField = aiField(card, "openai_api_key");
+  return {
+    ai_advisor_provider: fieldValue(card, "ai_advisor_provider"),
+    ai_model_family: fieldValue(card, "ai_model_family"),
+    openai_base_url: fieldValue(card, "openai_base_url"),
+    openai_model: fieldValue(card, "openai_model"),
+    openai_api_key: isSavedSecretInput(apiKeyField) ? null : apiKeyField?.value || "",
+  };
+}
+
+function applyAiCardConfig(card, config) {
+  setAiFieldValue(card, "ai_advisor_provider", config.ai_advisor_provider);
+  setAiFieldValue(card, "ai_model_family", config.ai_model_family);
+  syncModelInterfaceField(card);
+  setAiFieldValue(card, "openai_base_url", config.openai_base_url);
+  setAiFieldValue(card, "openai_model", config.openai_model);
+  if (config.openai_api_key !== null) {
+    setAiFieldValue(card, "openai_api_key", config.openai_api_key);
+  }
+  setAiFieldChecked(card, "clear_openai_api_key", false);
+  applyFamilyHints(card);
+}
+
+function applyAiConfigToAll(sourceCard) {
+  if (!sourceCard) {
+    return;
+  }
+  const config = collectAiCardConfig(sourceCard);
+  document.querySelectorAll(".ai-agent-card").forEach((card) => {
+    if (card !== sourceCard) {
+      applyAiCardConfig(card, config);
+    }
+  });
+  saveSettingsDraft();
+  const title = sourceCard.querySelector(".ai-agent-heading strong")?.textContent || "当前 Agent";
+  showToast(`已用 ${title} 的配置覆盖其它全部 AI Agent。`);
+}
+
+function setAiFieldValue(card, fieldName, value) {
+  const field = card.querySelector(`[data-ai-field="${fieldName}"]`);
+  if (!field || value === undefined || value === null) {
+    return;
+  }
+  field.value = value;
+  if (fieldName === "openai_api_key" && value !== savedSecretMask) {
+    field.dataset.secretMasked = "false";
+  }
+}
+
+function setAiFieldChecked(card, fieldName, value) {
+  const field = card.querySelector(`[data-ai-field="${fieldName}"]`);
+  if (!field || value === undefined || value === null) {
+    return;
+  }
+  field.checked = Boolean(value);
+}
+
+function syncModelInterfaceField(card) {
+  setAiFieldValue(
+    card,
+    "model_interface",
+    modelInterfaceFromValues(fieldValue(card, "ai_advisor_provider"), fieldValue(card, "ai_model_family"))
+  );
+}
+
+function settingsDraftAfterSave(draft, payload) {
+  const next = JSON.parse(JSON.stringify(draft || {}));
+  if (payload.clear_finnhub_api_key) {
+    next.finnhub_api_key = "";
+  }
+  if (payload.clear_polygon_api_key) {
+    next.polygon_api_key = "";
+  }
+  if (payload.clear_alpha_vantage_api_key) {
+    next.alpha_vantage_api_key = "";
+  }
+  next.clear_finnhub_api_key = false;
+  next.clear_polygon_api_key = false;
+  next.clear_alpha_vantage_api_key = false;
+
+  Object.entries(next.ai_agents || {}).forEach(([agentKey, agentDraft]) => {
+    if (payload.ai_agents?.[agentKey]?.clear_openai_api_key) {
+      agentDraft.openai_api_key = "";
+    }
+    agentDraft.clear_openai_api_key = false;
+  });
+  return next;
 }
 
 async function loadAgents() {
@@ -448,19 +896,25 @@ async function saveSettings(event) {
   event.preventDefault();
   const form = event.currentTarget;
   const fields = form.elements;
+  const draftBeforeSave = collectSettingsDraft();
   const payload = {
     ai_agents: collectAiAgentSettings(),
     market_data_provider: fields.namedItem("market_data_provider").value,
     clear_finnhub_api_key: fields.namedItem("clear_finnhub_api_key").checked,
     clear_polygon_api_key: fields.namedItem("clear_polygon_api_key").checked,
+    clear_alpha_vantage_api_key: fields.namedItem("clear_alpha_vantage_api_key").checked,
   };
   const finnhubKey = fields.namedItem("finnhub_api_key").value.trim();
   const polygonKey = fields.namedItem("polygon_api_key").value.trim();
+  const alphaVantageKey = fields.namedItem("alpha_vantage_api_key").value.trim();
   if (finnhubKey) {
     payload.finnhub_api_key = finnhubKey;
   }
   if (polygonKey) {
     payload.polygon_api_key = polygonKey;
+  }
+  if (alphaVantageKey) {
+    payload.alpha_vantage_api_key = alphaVantageKey;
   }
 
   try {
@@ -469,12 +923,14 @@ async function saveSettings(event) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
+    saveSettingsDraft(settingsDraftAfterSave(draftBeforeSave, payload));
     renderSettingsState(state.settings);
     await loadHealth();
     await loadAgents();
     $("#settingsDialog").close();
     showToast("配置已保存并生效。");
   } catch (error) {
+    saveSettingsDraft(draftBeforeSave);
     showToast(`配置保存失败：${error.message}`);
   }
 }
@@ -483,6 +939,7 @@ function collectAiAgentSettings() {
   const aiAgents = {};
   document.querySelectorAll(".ai-agent-card").forEach((card) => {
     const agentKey = card.dataset.agentKey;
+    const apiKeyField = aiField(card, "openai_api_key");
     const config = {
       ai_advisor_provider: fieldValue(card, "ai_advisor_provider"),
       ai_model_family: fieldValue(card, "ai_model_family"),
@@ -490,9 +947,11 @@ function collectAiAgentSettings() {
       openai_model: fieldValue(card, "openai_model").trim(),
       clear_openai_api_key: fieldChecked(card, "clear_openai_api_key"),
     };
-    const apiKey = fieldValue(card, "openai_api_key").trim();
+    const apiKey = apiKeyField?.value.trim() || "";
     if (apiKey) {
-      config.openai_api_key = apiKey;
+      if (!isSavedSecretInput(apiKeyField)) {
+        config.openai_api_key = apiKey;
+      }
     }
     aiAgents[agentKey] = config;
   });
@@ -505,6 +964,14 @@ function fieldValue(container, fieldName) {
 
 function fieldChecked(container, fieldName) {
   return container.querySelector(`[data-ai-field="${fieldName}"]`)?.checked || false;
+}
+
+function aiField(container, fieldName) {
+  return container.querySelector(`[data-ai-field="${fieldName}"]`);
+}
+
+function isSavedSecretInput(input) {
+  return input?.dataset.secretMasked === "true" && input.value === savedSecretMask;
 }
 
 async function openSettingsDialog() {
@@ -522,25 +989,38 @@ function applyFamilyHints(card) {
   if (!hints) {
     return;
   }
-  card.querySelector('[data-ai-field="openai_base_url"]').placeholder = hints.url;
-  card.querySelector('[data-ai-field="openai_model"]').placeholder = hints.model;
+  card.querySelector('[data-ai-field="openai_base_url"]').placeholder = hintUrl(hints);
+  card.querySelector('[data-ai-field="openai_model"]').placeholder = hintModel(hints);
+  syncEndpointDefaults(card, family, hints);
 }
 
-function applyProviderDefaults(card) {
-  const provider = fieldValue(card, "ai_advisor_provider");
-  const family = providerToFamily[provider];
-  if (family) {
-    card.querySelector('[data-ai-field="ai_model_family"]').value = family;
+function syncEndpointDefaults(card, family, hints) {
+  const baseUrlInput = aiField(card, "openai_base_url");
+  const modelInput = aiField(card, "openai_model");
+  if (family === "openai_compatible") {
+    if (baseUrlInput.value.trim() === defaultOpenAiBaseUrl) {
+      baseUrlInput.value = "";
+    }
+    if (modelInput.value.trim() === defaultOpenAiModel) {
+      modelInput.value = "";
+    }
+    return;
   }
+  if (!baseUrlInput.value.trim() && hints.url) {
+    baseUrlInput.value = hints.url;
+  }
+  if (!modelInput.value.trim() && hints.model) {
+    modelInput.value = hints.model;
+  }
+}
+
+function applyModelInterfaceDefaults(card) {
+  const modelInterface = fieldValue(card, "model_interface");
+  const family = familyForModelInterface(modelInterface);
+  card.querySelector('[data-ai-field="ai_advisor_provider"]').value =
+    providerForModelInterface(modelInterface);
+  card.querySelector('[data-ai-field="ai_model_family"]').value = family;
   applyFamilyHints(card);
-}
-
-function syncProviderFromFamily(card) {
-  const family = fieldValue(card, "ai_model_family");
-  const provider = familyToProvider[family];
-  if (provider) {
-    card.querySelector('[data-ai-field="ai_advisor_provider"]').value = provider;
-  }
 }
 
 async function submitPlan(event) {
@@ -549,6 +1029,7 @@ async function submitPlan(event) {
   try {
     const payload = buildPayload(event.currentTarget);
     state.lastSymbols = payload.symbols;
+    state.amountCurrency = payload.profile.amount_currency;
     state.plan = await requestJson("/api/v1/advice/plans", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -556,12 +1037,410 @@ async function submitPlan(event) {
     });
     state.activeTab = "ai";
     renderPlan();
+    savePlanResult();
   } catch (error) {
     state.plan = null;
+    removeStoredJson(storageKeys.planResult);
     showToast(`计划生成失败：${error.message}`);
   } finally {
     setLoading(false);
   }
+}
+
+function savePlanResult() {
+  if (!state.plan) {
+    removeStoredJson(storageKeys.planResult);
+    return;
+  }
+  writeStoredJson(storageKeys.planResult, {
+    plan: state.plan,
+    lastSymbols: state.lastSymbols,
+    activeTab: state.activeTab,
+    amountCurrency: activeAmountCurrency(),
+  });
+}
+
+function restorePlanResult() {
+  const snapshot = readStoredJson(storageKeys.planResult);
+  if (!snapshot || typeof snapshot !== "object" || !snapshot.plan) {
+    return;
+  }
+  state.plan = snapshot.plan;
+  state.lastSymbols = Array.isArray(snapshot.lastSymbols) ? snapshot.lastSymbols : [];
+  state.activeTab = snapshot.activeTab || "ai";
+  state.amountCurrency = normalizeAmountCurrency(snapshot.amountCurrency || activeAmountCurrency());
+  renderPlan();
+  setLoading(false);
+}
+
+function reportMoney(value, currency = activeAmountCurrency()) {
+  if (value === null || value === undefined || value === "") {
+    return "-";
+  }
+  return formatMoney(Number(value), currency);
+}
+
+function reportList(items, variant = "") {
+  const values = (items || []).filter(Boolean);
+  if (!values.length) {
+    return '<p class="muted">暂无。</p>';
+  }
+  const className = ["report-list", variant ? `report-list-${variant}` : ""]
+    .filter(Boolean)
+    .join(" ");
+  return `<ul class="${className}">${values.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>`;
+}
+
+function reportTable(headers, rows, variant = "") {
+  if (!rows.length) {
+    return '<p class="muted">暂无数据。</p>';
+  }
+  const className = ["table-frame", variant ? `table-frame-${variant}` : ""]
+    .filter(Boolean)
+    .join(" ");
+  return `
+    <div class="${className}">
+      <table>
+        <thead>
+          <tr>${headers.map((header) => `<th>${escapeHtml(header)}</th>`).join("")}</tr>
+        </thead>
+        <tbody>
+          ${rows
+            .map(
+              (row) => `<tr>${row.map((cell) => `<td>${escapeHtml(cell ?? "-")}</td>`).join("")}</tr>`
+            )
+            .join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function buildPlanReportHtml(plan, input, exportedAt) {
+  const risk = plan.risk_assessment || {};
+  const allocation = plan.allocation || {};
+  const returns = plan.return_analysis || {};
+  const compliance = plan.compliance_review || {};
+  const aiReview = plan.ai_review || {};
+  const amountCurrency = normalizeAmountCurrency(input.amount_currency || state.amountCurrency);
+  const allocationRows = (allocation.buckets || []).map((bucket) => [
+    bucket.instrument,
+    `${Number(bucket.target_weight_pct || 0).toFixed(1)}%`,
+    reportMoney(bucket.target_amount, amountCurrency),
+    bucket.rationale || "-",
+  ]);
+  const projectionRows = (returns.projections || []).map((point) => [
+    `${point.years} 年`,
+    reportMoney(point.downside_value, amountCurrency),
+    reportMoney(point.expected_value, amountCurrency),
+    reportMoney(point.upside_value, amountCurrency),
+  ]);
+  const quoteRows = (plan.quotes || []).map((quote) => [
+    quote.symbol,
+    reportMoney(quote.current_price, quote.currency || "USD"),
+    formatPercent(quote.change_percent),
+    `${quote.source || "-"}${quote.is_realtime ? " · 实时" : ""}`,
+    formatDateTime(quote.updated_at),
+  ]);
+  const positions = (input.current_positions || [])
+    .filter((position) => position.symbol)
+    .map((position) => [
+      position.symbol,
+      position.quantity || "0",
+      position.average_cost ? reportMoney(position.average_cost, amountCurrency) : "-",
+    ]);
+  const riskAnswers = (input.risk_answers || []).join(" / ") || "-";
+
+  return `<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>AlphaEngine 投资计划报告</title>
+    <style>
+      :root {
+        --text: #1d2523;
+        --muted: #687570;
+        --line: #d9e0dd;
+        --panel: #ffffff;
+        --soft: #f6f8fa;
+        --accent: #0d7c66;
+        --accent-strong: #075f4e;
+        --blue: #2f6fbb;
+        --amber: #bb7a14;
+        --red: #bf3f37;
+        --purple: #6f54b5;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        color: var(--text);
+        background: linear-gradient(180deg, #eef8f5 0, #f6f7f9 290px);
+        font-family: "Segoe UI", Arial, sans-serif;
+      }
+      main { max-width: 1040px; margin: 0 auto; padding: 34px 22px 52px; }
+      h1, h2, h3, p { margin: 0; }
+      h1 { font-size: 32px; line-height: 1.1; letter-spacing: 0; }
+      h2 {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        margin-bottom: 14px;
+        font-size: 19px;
+      }
+      h2::before {
+        width: 5px;
+        height: 18px;
+        border-radius: 999px;
+        background: var(--accent);
+        content: "";
+      }
+      h3 { margin: 16px 0 9px; font-size: 15px; }
+      section, .hero {
+        margin-top: 16px;
+        padding: 20px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--panel);
+        box-shadow: 0 14px 36px rgba(32, 43, 39, 0.08);
+      }
+      .hero {
+        margin-top: 0;
+        border-color: rgba(13, 124, 102, 0.18);
+        background: linear-gradient(135deg, #ffffff 0%, #eef8f5 64%, #edf4fb 100%);
+      }
+      .hero-header {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 16px;
+      }
+      .report-badge {
+        padding: 6px 10px;
+        border: 1px solid rgba(13, 124, 102, 0.22);
+        border-radius: 999px;
+        color: var(--accent-strong);
+        background: #ffffff;
+        font-size: 12px;
+        font-weight: 800;
+      }
+      .muted { color: var(--muted); line-height: 1.65; }
+      .notice {
+        margin-top: 16px;
+        padding: 13px 14px;
+        border: 1px solid rgba(187, 122, 20, 0.25);
+        border-left: 5px solid var(--amber);
+        border-radius: 8px;
+        background: #fff7e8;
+        color: #6d4306;
+        line-height: 1.6;
+      }
+      .metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-top: 18px; }
+      .metric {
+        padding: 14px;
+        border: 1px solid rgba(13, 124, 102, 0.16);
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.82);
+      }
+      .metric:nth-child(2) { border-color: rgba(47, 111, 187, 0.18); }
+      .metric:nth-child(3) { border-color: rgba(187, 122, 20, 0.2); }
+      .metric:nth-child(4) { border-color: rgba(191, 63, 55, 0.2); }
+      .metric span { display: block; color: var(--muted); font-size: 12px; font-weight: 800; }
+      .metric strong { display: block; margin-top: 6px; font-size: 22px; line-height: 1.15; }
+      .facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+      .fact { padding: 11px 12px; border: 1px solid var(--line); border-radius: 8px; background: #f8faf9; }
+      .fact span { display: block; color: var(--muted); font-size: 12px; font-weight: 800; }
+      .fact strong { display: block; margin-top: 5px; line-height: 1.35; }
+      .table-frame {
+        overflow-x: auto;
+        margin-top: 10px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+      }
+      table { width: 100%; min-width: 640px; border-collapse: collapse; background: #fff; }
+      th, td { padding: 11px 12px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+      tr:last-child td { border-bottom: 0; }
+      tbody tr:nth-child(even) { background: #fafcfb; }
+      th { color: var(--muted); font-size: 12px; background: #f1f5f3; text-transform: uppercase; }
+      .report-list {
+        display: grid;
+        gap: 8px;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+        line-height: 1.65;
+      }
+      .report-list li {
+        padding: 10px 12px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #f8faf9;
+      }
+      .report-list-note li, .report-list-rationale li {
+        border-color: rgba(187, 122, 20, 0.2);
+        background: #fff7e8;
+        box-shadow: inset 4px 0 0 var(--amber);
+      }
+      .report-list-warning li, .report-list-limitation li {
+        border-color: rgba(191, 63, 55, 0.22);
+        background: #fff0ee;
+        box-shadow: inset 4px 0 0 var(--red);
+      }
+      .report-list-suitability li {
+        border-color: rgba(47, 111, 187, 0.22);
+        background: #edf4fb;
+        box-shadow: inset 4px 0 0 var(--blue);
+      }
+      .report-list-guardrail li, .report-list-action li {
+        border-color: rgba(13, 124, 102, 0.22);
+        background: #eef8f5;
+        box-shadow: inset 4px 0 0 var(--accent);
+      }
+      .report-list-insight li {
+        border-color: rgba(47, 111, 187, 0.22);
+        background: #edf4fb;
+        box-shadow: inset 4px 0 0 var(--blue);
+      }
+      .ai-report-summary {
+        display: grid;
+        gap: 8px;
+        margin-bottom: 14px;
+        padding: 14px;
+        border: 1px solid rgba(111, 84, 181, 0.2);
+        border-radius: 8px;
+        background: #f1edfb;
+      }
+      .ai-report-summary strong { color: var(--purple); }
+      .two-col { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+      @media (max-width: 720px) {
+        .metrics, .facts, .two-col, .hero-header { grid-template-columns: 1fr; }
+        .hero-header { display: grid; }
+        main { padding: 18px 12px 32px; }
+        h1 { font-size: 28px; }
+      }
+      @media print {
+        body { background: #fff; }
+        main { max-width: none; padding: 0; }
+        section, .hero { break-inside: avoid; box-shadow: none; }
+        .report-list li { break-inside: avoid; }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="hero">
+        <div class="hero-header">
+          <div>
+            <h1>AlphaEngine 投资计划报告</h1>
+            <p class="muted">导出时间：${escapeHtml(formatDateTime(exportedAt))}</p>
+          </div>
+          <span class="report-badge">${escapeHtml(formatAiProvider(aiReview.provider || "-"))}</span>
+        </div>
+        <div class="notice">本报告仅用于教育、研究和产品原型演示，不构成投资建议、收益承诺或个性化投顾服务。执行前请由具备资质的专业人员复核。</div>
+        <div class="metrics">
+          <div class="metric"><span>风险评分</span><strong>${escapeHtml(Number(risk.risk_score || 0).toFixed(0))}</strong></div>
+          <div class="metric"><span>风险等级</span><strong>${escapeHtml(labelFor(risk.risk_level, riskLabels))}</strong></div>
+          <div class="metric"><span>预期年化收益</span><strong>${escapeHtml(formatPercent(returns.expected_annual_return_pct))}</strong></div>
+          <div class="metric"><span>人工复核</span><strong>${compliance.requires_human_review ? "需要" : "无需"}</strong></div>
+        </div>
+      </div>
+
+      <section>
+        <h2>投资人画像</h2>
+        <div class="facts">
+          <div class="fact"><span>用户 ID</span><strong>${escapeHtml(input.user_id || "-")}</strong></div>
+          <div class="fact"><span>金额单位</span><strong>${escapeHtml(formatAmountCurrency(amountCurrency))}</strong></div>
+          <div class="fact"><span>年龄</span><strong>${escapeHtml(input.age || "-")}</strong></div>
+          <div class="fact"><span>年收入</span><strong>${escapeHtml(reportMoney(input.annual_income, amountCurrency))}</strong></div>
+          <div class="fact"><span>净资产</span><strong>${escapeHtml(reportMoney(input.net_worth, amountCurrency))}</strong></div>
+          <div class="fact"><span>初始投资本金</span><strong>${escapeHtml(reportMoney(input.initial_capital, amountCurrency))}</strong></div>
+          <div class="fact"><span>投资期限</span><strong>${escapeHtml(input.investment_horizon_years || "-")} 年</strong></div>
+          <div class="fact"><span>流动性需求</span><strong>${escapeHtml(labelFor(input.liquidity_need, liquidityLabels))}</strong></div>
+          <div class="fact"><span>投资目标</span><strong>${escapeHtml(labelFor(input.investment_objective, objectiveLabels))}</strong></div>
+          <div class="fact"><span>风险问卷</span><strong>${escapeHtml(riskAnswers)}</strong></div>
+        </div>
+      </section>
+
+      <section>
+        <h2>配置建议</h2>
+        <p class="muted">再平衡频率：${escapeHtml(allocation.rebalance_frequency || "-")}</p>
+        ${reportTable(["资产/工具", "目标权重", "目标金额", "理由"], allocationRows, "allocation")}
+        <h3>配置备注</h3>
+        ${reportList(allocation.notes, "note")}
+      </section>
+
+      <section>
+        <h2>收益情景</h2>
+        <p class="muted">预期年化波动：${escapeHtml(formatPercent(returns.expected_annual_volatility_pct))}</p>
+        ${reportTable(["期限", "下行情景", "预期情景", "上行情景"], projectionRows, "projection")}
+      </section>
+
+      <section>
+        <h2>行情快照</h2>
+        <p class="muted">关注标的：${escapeHtml((state.lastSymbols || []).join(", ") || "-")}</p>
+        ${reportTable(["代码", "价格", "涨跌", "来源", "更新时间"], quoteRows, "quotes")}
+      </section>
+
+      <section>
+        <h2>已有持仓</h2>
+        ${reportTable(["代码", "数量", "平均成本"], positions, "positions")}
+      </section>
+
+      <section>
+        <h2>合规提醒</h2>
+        <div class="two-col">
+          <div><h3>警示</h3>${reportList(compliance.warnings, "warning")}</div>
+          <div><h3>适当性</h3>${reportList(compliance.suitability_notes, "suitability")}</div>
+        </div>
+        <h3>护栏</h3>
+        ${reportList(compliance.guardrails, "guardrail")}
+      </section>
+
+      <section>
+        <h2>AI 解读</h2>
+        <div class="ai-report-summary">
+          <strong>${escapeHtml(aiReview.is_model_generated ? "模型生成" : "本地模拟")} · ${escapeHtml(formatAiProvider(aiReview.provider))}${aiReview.model ? ` · ${escapeHtml(aiReview.model)}` : ""}</strong>
+          <p>${escapeHtml(aiReview.summary || "-")}</p>
+        </div>
+        <div class="two-col">
+          <div><h3>关键洞察</h3>${reportList(aiReview.key_insights, "insight")}</div>
+          <div><h3>行动项</h3>${reportList(aiReview.action_items, "action")}</div>
+        </div>
+        <h3>限制</h3>
+        ${reportList(aiReview.limitations, "limitation")}
+      </section>
+
+      <section>
+        <h2>风险评估理由</h2>
+        ${reportList(risk.rationale, "rationale")}
+      </section>
+    </main>
+  </body>
+</html>`;
+}
+
+function exportPlanResult() {
+  if (!state.plan) {
+    showToast("暂无可导出的结果。");
+    updateExportButton();
+    return;
+  }
+
+  const exportedAt = new Date().toISOString();
+  const html = buildPlanReportHtml(state.plan, collectPlanDraft(), exportedAt);
+  const blob = new Blob([html], {
+    type: "text/html;charset=utf-8",
+  });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `alphaengine-investment-report-${exportedAt
+    .replaceAll(":", "-")
+    .replaceAll(".", "-")}.html`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 0);
+  showToast("报告已导出。");
 }
 
 function renderPlan() {
@@ -579,6 +1458,7 @@ function renderPlan() {
   renderProjection();
   renderQuotes(state.plan.quotes);
   renderTabs();
+  updateExportButton();
 }
 
 function renderAllocation() {
@@ -607,6 +1487,7 @@ function renderAllocation() {
 
 function renderProjection() {
   const projections = state.plan.return_analysis.projections;
+  const amountCurrency = activeAmountCurrency();
   const maxValue = Math.max(...projections.flatMap((item) => [item.upside_value, item.expected_value]));
   $("#projectionChart").innerHTML = projections
     .map((point) => {
@@ -621,7 +1502,7 @@ function renderProjection() {
             <div class="projection-line expected"><span style="width:${expected}%"></span></div>
             <div class="projection-line upside"><span style="width:${upside}%"></span></div>
           </div>
-          <span>${formatMoney(point.expected_value)}</span>
+          <span>${formatMoney(point.expected_value, amountCurrency)}</span>
         </div>
       `;
     })
@@ -647,10 +1528,15 @@ function renderQuotes(quotes) {
 }
 
 function renderTabs() {
+  const tabs = document.querySelector(".tabs");
+  if (tabs) {
+    tabs.dataset.activeTab = state.activeTab;
+  }
   document.querySelectorAll(".tab").forEach((button) => {
     button.classList.toggle("active", button.dataset.tab === state.activeTab);
   });
   const panel = $("#tabPanel");
+  panel.dataset.tab = state.activeTab;
   if (state.activeTab === "ai") {
     const review = state.plan.ai_review;
     panel.innerHTML = `
@@ -661,9 +1547,9 @@ function renderTabs() {
           <p>${escapeHtml(review.summary)}</p>
         </div>
         ${listMarkup([
-          ...review.key_insights.map((item) => `洞察：${item}`),
-          ...review.action_items.map((item) => `行动：${item}`),
-          ...review.limitations.map((item) => `限制：${item}`),
+          ...review.key_insights.map((item) => ({ text: `洞察：${item}`, type: "insight" })),
+          ...review.action_items.map((item) => ({ text: `行动：${item}`, type: "action" })),
+          ...review.limitations.map((item) => ({ text: `限制：${item}`, type: "limitation" })),
         ])}
       </div>
     `;
@@ -704,7 +1590,14 @@ function renderTabs() {
 }
 
 function listMarkup(items) {
-  return `<ul class="detail-list">${items.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>`;
+  return `<ul class="detail-list">${items.map((item) => detailItemMarkup(item)).join("")}</ul>`;
+}
+
+function detailItemMarkup(item) {
+  const text = typeof item === "object" && item !== null ? item.text : item;
+  const type = typeof item === "object" && item !== null ? item.type : "";
+  const className = type ? ` class="detail-${escapeHtml(type)}"` : "";
+  return `<li${className}>${escapeHtml(text)}</li>`;
 }
 
 async function refreshQuotes() {
@@ -716,6 +1609,10 @@ async function refreshQuotes() {
     const quotes = await requestJson(
       `/api/v1/market/quotes?symbols=${encodeURIComponent(state.lastSymbols.join(","))}`
     );
+    if (state.plan) {
+      state.plan.quotes = quotes;
+      savePlanResult();
+    }
     renderQuotes(quotes);
   } catch (error) {
     showToast(`行情刷新失败：${error.message}`);
@@ -727,20 +1624,21 @@ function loadSample() {
   const fields = form.elements;
   form.reset();
   fields.namedItem("user_id").value = "demo-user";
+  fields.namedItem("amount_currency").value = defaultAmountCurrency;
+  state.amountCurrency = defaultAmountCurrency;
   fields.namedItem("age").value = 32;
   fields.namedItem("annual_income").value = 300000;
   fields.namedItem("net_worth").value = 800000;
   fields.namedItem("initial_capital").value = 200000;
   fields.namedItem("investment_horizon_years").value = 8;
   fields.namedItem("symbols").value = "600519.SH,000001.SZ,AAPL,MSFT,SPY";
+  fields.namedItem("include_acp_trace").checked = true;
   form.querySelector('[name="liquidity_need"][value="medium"]').checked = true;
   form.querySelector('[name="investment_objective"][value="growth"]').checked = true;
   $("#positions").innerHTML = "";
   addPosition({ symbol: "AAPL", quantity: 20, average_cost: 170 });
-  document.querySelectorAll(".slider-row input").forEach((input, index) => {
-    input.value = [4, 4, 3, 5, 4][index];
-    input.previousElementSibling.textContent = input.value;
-  });
+  applyRiskAnswers([4, 4, 3, 5, 4]);
+  savePlanDraft();
 }
 
 function drawPreview() {
@@ -811,25 +1709,45 @@ function drawPreview() {
 
 function bindEvents() {
   $("#planForm").addEventListener("submit", submitPlan);
-  $("#addPosition").addEventListener("click", () => addPosition());
+  $("#planForm").addEventListener("input", savePlanDraft);
+  $("#planForm").addEventListener("change", (event) => {
+    savePlanDraft();
+    if (event.target?.name === "amount_currency") {
+      state.amountCurrency = normalizeAmountCurrency(event.target.value);
+      if (state.plan) {
+        renderPlan();
+        savePlanResult();
+      }
+    }
+  });
+  $("#addPosition").addEventListener("click", () => {
+    addPosition();
+    savePlanDraft();
+  });
   $("#loadSample").addEventListener("click", loadSample);
+  $("#exportResult").addEventListener("click", exportPlanResult);
   $("#refreshAgents").addEventListener("click", loadAgents);
   $("#refreshQuotes").addEventListener("click", refreshQuotes);
   $("#openSettings").addEventListener("click", openSettingsDialog);
   $("#closeSettings").addEventListener("click", () => $("#settingsDialog").close());
   $("#cancelSettings").addEventListener("click", () => $("#settingsDialog").close());
   $("#settingsForm").addEventListener("submit", saveSettings);
+  $("#settingsForm").addEventListener("input", () => saveSettingsDraft());
+  $("#settingsForm").addEventListener("change", () => saveSettingsDraft());
   document.querySelectorAll(".tab").forEach((button) => {
     button.addEventListener("click", () => {
       state.activeTab = button.dataset.tab;
       renderTabs();
+      savePlanResult();
     });
   });
 }
 
 buildRiskSliders();
 addPosition({ symbol: "AAPL", quantity: 20, average_cost: 170 });
+restorePlanDraft();
 bindEvents();
 drawPreview();
+restorePlanResult();
 loadHealth();
 loadSettings().then(loadAgents);

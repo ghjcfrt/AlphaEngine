@@ -9,7 +9,7 @@ from app.agents.market import MarketDataAgent
 from app.agents.returns import ReturnAnalysisAgent
 from app.agents.risk import RiskAssessmentAgent
 from app.core.config import AI_AGENT_LABELS, Settings
-from app.services.ai_advisor import AIAdvisorService, build_ai_advisor_service
+from app.services.ai_advisor import AIAdvisorService, build_ai_advisor_service, clear_ai_failure_cache
 from app.services.market_data import build_market_data_service
 
 
@@ -17,6 +17,7 @@ async def configure_runtime(app: FastAPI, settings: Settings, close_existing: bo
     old_market_service = getattr(app.state, "market_service", None)
     old_ai_advisor_services = getattr(app.state, "ai_advisor_services", None)
 
+    clear_ai_failure_cache()
     market_service = build_market_data_service(settings)
     ai_advisor_services = {
         agent_key: build_ai_advisor_service(settings, agent_key) for agent_key in AI_AGENT_LABELS

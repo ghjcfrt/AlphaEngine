@@ -1,5 +1,6 @@
 from typing import Any
 
+import httpx
 from pydantic import ValidationError
 
 from app.acp.bus import InMemoryACPBus
@@ -12,7 +13,7 @@ from app.domain.schemas import (
     RiskAssessment,
     RiskLevel,
 )
-from app.services.ai_advisor import AIAdvisorError, AIAdvisorJSONService
+from app.services.ai_advisor import AIAdvisorError, AIAdvisorJSONService, describe_ai_error
 
 
 class ComplianceAgent(BaseAgent):
@@ -55,8 +56,10 @@ class ComplianceAgent(BaseAgent):
                 baseline,
                 self.ai_advisor_service.provider_name,
             )
-        except (AIAdvisorError, ValidationError, ValueError) as exc:
-            baseline.warnings.append(f"AI协作失败，已回退规则合规基线：{exc}")
+        except (AIAdvisorError, httpx.HTTPError, ValidationError, ValueError) as exc:
+            baseline.warnings.append(
+                f"AI协作失败，已回退规则合规基线：{describe_ai_error(exc)}"
+            )
             return baseline
 
     @staticmethod

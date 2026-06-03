@@ -38,6 +38,9 @@ class RiskLevel(StrEnum):
     aggressive = "aggressive"
 
 
+AmountCurrency = Literal["CNY", "USD", "HKD", "EUR", "JPY"]
+
+
 class Position(BaseModel):
     symbol: str = Field(min_length=1, max_length=16)
     quantity: float = Field(ge=0)
@@ -51,6 +54,7 @@ class Position(BaseModel):
 
 class InvestorProfile(BaseModel):
     age: int = Field(ge=18, le=100)
+    amount_currency: AmountCurrency = "CNY"
     annual_income: float = Field(ge=0)
     net_worth: float = Field(ge=0)
     initial_capital: float = Field(gt=0)
@@ -62,6 +66,16 @@ class InvestorProfile(BaseModel):
         description="1-5 分制的风险问卷答案。",
     )
     current_positions: list[Position] = Field(default_factory=list)
+
+    @field_validator("amount_currency", mode="before")
+    @classmethod
+    def normalize_amount_currency(cls, value: object) -> object:
+        if value is None or value == "":
+            return "CNY"
+        normalized = str(value).strip().upper()
+        if normalized == "RMB":
+            return "CNY"
+        return normalized
 
     @field_validator("risk_answers")
     @classmethod
@@ -196,7 +210,7 @@ class AgentAISettingsResponse(BaseModel):
 
 
 class RuntimeSettingsResponse(BaseModel):
-    market_data_provider: Literal["hybrid", "finnhub", "polygon", "eastmoney", "mock"]
+    market_data_provider: Literal["hybrid", "finnhub", "polygon", "alphavantage", "eastmoney"]
     ai_advisor_provider: AIProvider
     ai_model_family: AIModelFamily
     ai_runtime_provider: str
@@ -209,6 +223,7 @@ class RuntimeSettingsResponse(BaseModel):
     has_openai_api_key: bool
     has_finnhub_api_key: bool
     has_polygon_api_key: bool
+    has_alpha_vantage_api_key: bool
     local_config_path: str
     ai_agents: dict[str, AgentAISettingsResponse]
 
@@ -233,7 +248,9 @@ class AgentAISettingsUpdate(BaseModel):
 
 
 class RuntimeSettingsUpdate(BaseModel):
-    market_data_provider: Literal["hybrid", "finnhub", "polygon", "eastmoney", "mock"] | None = None
+    market_data_provider: Literal[
+        "hybrid", "finnhub", "polygon", "alphavantage", "eastmoney"
+    ] | None = None
     ai_advisor_provider: AIProvider | None = None
     ai_model_family: AIModelFamily | None = None
     openai_base_url: str | None = None
@@ -244,6 +261,8 @@ class RuntimeSettingsUpdate(BaseModel):
     clear_finnhub_api_key: bool = False
     polygon_api_key: str | None = None
     clear_polygon_api_key: bool = False
+    alpha_vantage_api_key: str | None = None
+    clear_alpha_vantage_api_key: bool = False
     request_timeout_seconds: float | None = Field(default=None, gt=0)
     quote_cache_ttl_seconds: int | None = Field(default=None, ge=0)
     ai_agents: dict[str, AgentAISettingsUpdate] | None = None

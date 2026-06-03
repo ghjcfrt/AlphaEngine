@@ -1,5 +1,6 @@
 from typing import Any
 
+import httpx
 from pydantic import ValidationError
 
 from app.acp.bus import InMemoryACPBus
@@ -12,7 +13,7 @@ from app.domain.schemas import (
     RiskAssessment,
     RiskLevel,
 )
-from app.services.ai_advisor import AIAdvisorError, AIAdvisorJSONService
+from app.services.ai_advisor import AIAdvisorError, AIAdvisorJSONService, describe_ai_error
 
 
 class AssetAllocationAgent(BaseAgent):
@@ -87,8 +88,8 @@ class AssetAllocationAgent(BaseAgent):
             self._recalculate_amounts(plan.buckets, float(payload["initial_capital"]))
             plan.notes.append(f"AI协作: {self.ai_advisor_service.provider_name} 已复核配置。")
             return plan
-        except (AIAdvisorError, ValidationError, ValueError) as exc:
-            baseline.notes.append(f"AI协作失败，已回退规则基线：{exc}")
+        except (AIAdvisorError, httpx.HTTPError, ValidationError, ValueError) as exc:
+            baseline.notes.append(f"AI协作失败，已回退规则基线：{describe_ai_error(exc)}")
             return baseline
 
     def _rule_plan(self, payload: dict[str, Any]) -> AllocationPlan:

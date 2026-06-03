@@ -73,6 +73,7 @@ async def update_runtime_settings(
         _merge_secret(config, payload, "openai_api_key")
         _merge_secret(config, payload, "finnhub_api_key")
         _merge_secret(config, payload, "polygon_api_key")
+        _merge_secret(config, payload, "alpha_vantage_api_key")
         _merge_ai_agents(config, payload.get("ai_agents"))
         save_local_config(config)
         get_settings.cache_clear()
@@ -102,7 +103,7 @@ async def create_plan(
 ) -> InvestmentPlanResponse:
     try:
         return await request.app.state.coordinator.create_plan(plan_request)
-    except (MarketDataError, httpx.HTTPError) as exc:
+    except (AIAdvisorError, MarketDataError, httpx.HTTPError) as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
@@ -158,6 +159,7 @@ def _settings_response(request: Request) -> RuntimeSettingsResponse:
         has_openai_api_key=_has_secret(settings.openai_api_key),
         has_finnhub_api_key=_has_secret(settings.finnhub_api_key),
         has_polygon_api_key=_has_secret(settings.polygon_api_key),
+        has_alpha_vantage_api_key=_has_secret(settings.alpha_vantage_api_key),
         local_config_path=str(LOCAL_CONFIG_PATH),
         ai_agents=_ai_agent_responses(request),
     )

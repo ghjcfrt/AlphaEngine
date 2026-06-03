@@ -1,4 +1,6 @@
+import asyncio
 import json
+import time
 from typing import Any, Protocol
 
 import httpx
@@ -6,6 +8,7 @@ from pydantic import BaseModel
 
 from app.core.config import (
     AI_PROVIDER_LABELS,
+    DEFAULT_OPENAI_MODEL,
     AIModelSettings,
     Settings,
     resolve_ai_model_settings,
@@ -24,12 +27,17 @@ USER_PROMPT_PREFIX = (
 )
 
 DEFAULT_FAMILY_MODELS = {
-    "gpt": "gpt-5.4-mini",
-    "openai_compatible": "gpt-5.4-mini",
+    "gpt": DEFAULT_OPENAI_MODEL,
+    "openai_compatible": "",
     "gemini": "gemini-2.5-flash",
     "claude": "claude-sonnet-4-5",
     "deepseek": "deepseek-v4.1",
 }
+AI_FAILURE_COOLDOWN_SECONDS = 60
+AI_REQUEST_MAX_ATTEMPTS = 3
+AI_TIMEOUT_MAX_ATTEMPTS = 2
+AI_RETRY_BACKOFF_SECONDS = (0.8, 2.0)
+_AI_PROVIDER_FAILURES: dict[str, tuple[float, str]] = {}
 
 
 class AIAdvisorError(RuntimeError):
@@ -77,10 +85,13 @@ class AIAdvisorJSONService(Protocol):
     ) -> dict[str, Any]: ...
 
 
-class MockAIAdvisorProvider:
-    name: str = "Mock AI"
-    model: str | None = None
-    is_model_generated: bool = False
+class UnconfiguredAIAdvisorProvider:
+    is_model_generated: bool = True
+
+    def __init__(self, provider_name: str, model: str | None, reason: str) -> None:
+        self.name = provider_name
+        self.model = model
+        self.reason = reason
 
     async def generate_json(
         self,
@@ -90,46 +101,10 @@ class MockAIAdvisorProvider:
         schema: dict[str, Any],
         context: dict[str, Any],
     ) -> dict[str, Any]:
-        baseline = context.get("baseline")
-        if isinstance(baseline, dict):
-            return baseline
-        raise AIAdvisorError(f"{task_name} 没有可用的本地规则基线。")
+        raise AIAdvisorError(self.reason)
 
     async def create_review(self, context: dict[str, Any]) -> AIAdvisorReview:
-        risk = context["risk_assessment"]
-        allocation = context["allocation"]
-        return_analysis = context["return_analysis"]
-        compliance = context["compliance_review"]
-        top_bucket = max(allocation["buckets"], key=lambda item: item["target_weight_pct"])
-
-        return AIAdvisorReview(
-            provider=self.name,
-            model=self.model,
-            is_model_generated=self.is_model_generated,
-            summary=(
-                "当前未启用真实大模型，以下为本地规则解读。"
-                f"组合风险等级为 {risk['risk_level']}，最大权重资产为 "
-                f"{top_bucket['instrument']}，预期年化收益约为 "
-                f"{return_analysis['expected_annual_return_pct']}%。"
-            ),
-            key_insights=[
-                f"风险评分为 {risk['risk_score']}/100，权益上限为 {risk['max_equity_pct']}%。",
-                (
-                    f"{top_bucket['instrument']} 权重最高，目标占比 "
-                    f"{top_bucket['target_weight_pct']}%。"
-                ),
-                "配置结果已通过规则层合规检查，但仍需要结合真实客户适当性材料复核。",
-            ],
-            action_items=[
-                "接入模型 API Key 后可获得真实模型生成的中文投顾解读。",
-                "执行前确认客户身份、风险问卷、资金来源和产品准入清单。",
-                "定期复核行情数据授权、资产漂移和人工复核触发条件。",
-            ],
-            limitations=[
-                "本地 mock 不是大模型推理结果。",
-                *compliance["warnings"],
-            ],
-        )
+        raise AIAdvisorError(self.reason)
 
     async def close(self) -> None:
         return None
@@ -197,10 +172,11 @@ class OpenAIResponsesAdvisorProvider:
         schema: dict[str, Any],
         context: dict[str, Any],
     ) -> dict[str, Any]:
-        response = await self.client.post(
+        response = await _post_json_with_retries(
+            self.client,
             _join_url(self.base_url, "/v1/responses"),
             headers=_bearer_headers(self.api_key),
-            json={
+            payload={
                 "model": self.model,
                 "instructions": system_instructions,
                 "input": _task_prompt(user_prompt, schema, context),
@@ -208,7 +184,6 @@ class OpenAIResponsesAdvisorProvider:
                 "max_output_tokens": 1200,
             },
         )
-        response.raise_for_status()
         return _parse_json_payload(_extract_openai_response_text(response.json()))
 
     async def create_review(self, context: dict[str, Any]) -> AIAdvisorReview:
@@ -255,10 +230,11 @@ class ChatCompletionsAdvisorProvider:
         schema: dict[str, Any],
         context: dict[str, Any],
     ) -> dict[str, Any]:
-        response = await self.client.post(
+        response = await _post_json_with_retries(
+            self.client,
             _join_url(self.base_url, self.endpoint),
             headers=_bearer_headers(self.api_key),
-            json={
+            payload={
                 "model": self.model,
                 "messages": [
                     {"role": "system", "content": system_instructions},
@@ -268,7 +244,6 @@ class ChatCompletionsAdvisorProvider:
                 "max_tokens": 1200,
             },
         )
-        response.raise_for_status()
         return _parse_json_payload(_extract_chat_completion_text(response.json()))
 
     async def create_review(self, context: dict[str, Any]) -> AIAdvisorReview:
@@ -313,21 +288,21 @@ class AnthropicMessagesAdvisorProvider:
         context: dict[str, Any],
     ) -> dict[str, Any]:
         prompt = _task_prompt(user_prompt, schema, context)
-        response = await self.client.post(
+        response = await _post_json_with_retries(
+            self.client,
             _join_url(self.base_url, "/v1/messages"),
             headers={
                 "x-api-key": self.api_key,
                 "anthropic-version": "2023-06-01",
                 "Content-Type": "application/json",
             },
-            json={
+            payload={
                 "model": self.model,
                 "max_tokens": 1200,
                 "system": system_instructions,
                 "messages": [{"role": "user", "content": prompt}],
             },
         )
-        response.raise_for_status()
         return _parse_json_payload(_extract_anthropic_text(response.json()))
 
     async def create_review(self, context: dict[str, Any]) -> AIAdvisorReview:
@@ -373,13 +348,14 @@ class GeminiGenerateContentAdvisorProvider:
     ) -> dict[str, Any]:
         endpoint = f"/v1beta/models/{self.model}:generateContent"
         prompt = _task_prompt(user_prompt, schema, context)
-        response = await self.client.post(
+        response = await _post_json_with_retries(
+            self.client,
             _join_url(self.base_url, endpoint),
             headers={
                 "x-goog-api-key": self.api_key,
                 "Content-Type": "application/json",
             },
-            json={
+            payload={
                 "systemInstruction": {"parts": [{"text": system_instructions}]},
                 "contents": [
                     {"role": "user", "parts": [{"text": prompt}]},
@@ -390,7 +366,6 @@ class GeminiGenerateContentAdvisorProvider:
                 },
             },
         )
-        response.raise_for_status()
         return _parse_json_payload(_extract_gemini_text(response.json()))
 
     async def create_review(self, context: dict[str, Any]) -> AIAdvisorReview:
@@ -413,7 +388,13 @@ class AIAdvisorService:
         self.provider = provider
 
     async def create_review(self, context: dict[str, Any]) -> AIAdvisorReview:
-        return await self.provider.create_review(_jsonable(context))
+        self._raise_if_provider_is_cooling_down()
+        try:
+            return await self.provider.create_review(_jsonable(context))
+        except httpx.HTTPError as exc:
+            message = describe_ai_error(exc)
+            self._remember_provider_failure(message)
+            raise AIAdvisorError(message) from exc
 
     async def generate_json(
         self,
@@ -423,13 +404,19 @@ class AIAdvisorService:
         schema: dict[str, Any],
         context: dict[str, Any],
     ) -> dict[str, Any]:
-        return await self.provider.generate_json(
-            task_name=task_name,
-            system_instructions=system_instructions,
-            user_prompt=user_prompt,
-            schema=schema,
-            context=_jsonable(context),
-        )
+        self._raise_if_provider_is_cooling_down()
+        try:
+            return await self.provider.generate_json(
+                task_name=task_name,
+                system_instructions=system_instructions,
+                user_prompt=user_prompt,
+                schema=schema,
+                context=_jsonable(context),
+            )
+        except httpx.HTTPError as exc:
+            message = describe_ai_error(exc)
+            self._remember_provider_failure(message)
+            raise AIAdvisorError(message) from exc
 
     @property
     def is_model_generated(self) -> bool:
@@ -446,6 +433,36 @@ class AIAdvisorService:
     async def close(self) -> None:
         await self.provider.close()
 
+    def _provider_cache_key(self) -> str:
+        return "|".join(
+            [
+                self.provider.name,
+                self.provider.model or "",
+                str(getattr(self.provider, "base_url", "")),
+                str(getattr(self.provider, "endpoint", "")),
+            ]
+        )
+
+    def _raise_if_provider_is_cooling_down(self) -> None:
+        cached = _AI_PROVIDER_FAILURES.get(self._provider_cache_key())
+        if not cached:
+            return
+        expires_at, message = cached
+        if time.monotonic() >= expires_at:
+            _AI_PROVIDER_FAILURES.pop(self._provider_cache_key(), None)
+            return
+        raise AIAdvisorError(f"模型接口临时不可用，已跳过重试：{message}")
+
+    def _remember_provider_failure(self, message: str) -> None:
+        _AI_PROVIDER_FAILURES[self._provider_cache_key()] = (
+            time.monotonic() + AI_FAILURE_COOLDOWN_SECONDS,
+            message,
+        )
+
+
+def clear_ai_failure_cache() -> None:
+    _AI_PROVIDER_FAILURES.clear()
+
 
 def build_ai_advisor_service(settings: Settings, agent_key: str | None = None) -> AIAdvisorService:
     model_settings = resolve_ai_model_settings(settings, agent_key)
@@ -453,17 +470,20 @@ def build_ai_advisor_service(settings: Settings, agent_key: str | None = None) -
     model_api_key = _usable_api_key(model_settings.openai_api_key)
     if provider_name == "disabled":
         provider: AIAdvisorProvider = DisabledAIAdvisorProvider()
-    elif provider_name == "mock" or (provider_name == "auto" and not model_api_key):
-        provider = MockAIAdvisorProvider()
     else:
         if not model_api_key:
             provider_label = AI_PROVIDER_LABELS.get(provider_name, provider_name)
-            raise AIAdvisorError(f"AI 提供方为 {provider_label} 时必须配置模型 API Key。")
-        provider = _build_model_provider(
-            model_settings,
-            api_key=model_api_key,
-            timeout_seconds=settings.request_timeout_seconds,
-        )
+            provider = UnconfiguredAIAdvisorProvider(
+                provider_name=provider_label,
+                model=model_settings.openai_model,
+                reason=f"AI 提供方为 {provider_label} 时必须配置模型 API Key。",
+            )
+        else:
+            provider = _build_model_provider(
+                model_settings,
+                api_key=model_api_key,
+                timeout_seconds=settings.request_timeout_seconds,
+            )
     return AIAdvisorService(provider)
 
 
@@ -473,8 +493,8 @@ def _build_model_provider(
     timeout_seconds: float,
 ) -> AIAdvisorProvider:
     family = settings.ai_model_family
-    model = _model_for_family(settings)
     base_url = _required_base_url(settings.openai_base_url)
+    model = _model_for_family(settings)
     if family == "gpt":
         return OpenAIResponsesAdvisorProvider(
             api_key=api_key,
@@ -511,7 +531,11 @@ def _build_model_provider(
 def _model_for_family(settings: AIModelSettings) -> str:
     family = settings.ai_model_family
     model = settings.openai_model.strip()
-    if family in {"gpt", "openai_compatible"}:
+    if family == "gpt":
+        return model
+    if family == "openai_compatible":
+        if not model:
+            raise AIAdvisorError("OpenAI Compatible 模型名称不能为空。")
         return model
     if model and model != DEFAULT_FAMILY_MODELS["gpt"]:
         return model
@@ -637,6 +661,57 @@ def _bearer_headers(api_key: str) -> dict[str, str]:
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
     }
+
+
+async def _post_json_with_retries(
+    client: httpx.AsyncClient,
+    url: str,
+    headers: dict[str, str],
+    payload: dict[str, Any],
+) -> httpx.Response:
+    attempt = 1
+    while True:
+        try:
+            response = await client.post(url, headers=headers, json=payload)
+            response.raise_for_status()
+            return response
+        except httpx.HTTPError as exc:
+            if not _should_retry_ai_request(exc, attempt):
+                raise
+            await asyncio.sleep(_retry_delay_seconds(attempt))
+            attempt += 1
+
+
+def _should_retry_ai_request(exc: httpx.HTTPError, attempt: int) -> bool:
+    max_attempts = AI_TIMEOUT_MAX_ATTEMPTS if isinstance(exc, httpx.TimeoutException) else (
+        AI_REQUEST_MAX_ATTEMPTS
+    )
+    if attempt >= max_attempts:
+        return False
+    if isinstance(exc, httpx.HTTPStatusError):
+        status_code = exc.response.status_code
+        return status_code in {408, 429} or 500 <= status_code <= 599
+    if isinstance(exc, httpx.TimeoutException):
+        return True
+    if isinstance(exc, (httpx.NetworkError, httpx.RemoteProtocolError, httpx.PoolTimeout)):
+        return True
+    return False
+
+
+def _retry_delay_seconds(attempt: int) -> float:
+    return AI_RETRY_BACKOFF_SECONDS[min(attempt - 1, len(AI_RETRY_BACKOFF_SECONDS) - 1)]
+
+
+def describe_ai_error(exc: Exception) -> str:
+    if isinstance(exc, httpx.HTTPStatusError):
+        status = exc.response.status_code
+        reason = exc.response.reason_phrase
+        return f"模型接口返回 {status} {reason}。"
+    if isinstance(exc, httpx.TimeoutException):
+        return "模型接口请求超时。"
+    if isinstance(exc, httpx.HTTPError):
+        return "模型接口请求失败。"
+    return str(exc)
 
 
 def _jsonable(value: Any) -> Any:

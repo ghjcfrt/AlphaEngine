@@ -67,7 +67,7 @@ class AdviceCoordinatorAgent:
             },
         )
 
-        symbols = self._quote_symbols(request, allocation)
+        symbols = self._quote_symbols(request)
         quotes: list[QuoteSnapshot] = await self._invoke(
             self.market_agent,
             trace_id,
@@ -164,7 +164,7 @@ class AdviceCoordinatorAgent:
         return value
 
     @staticmethod
-    def _quote_symbols(request: InvestmentPlanRequest, allocation: AllocationPlan) -> list[str]:
+    def _quote_symbols(request: InvestmentPlanRequest) -> list[str]:
         symbols: list[str] = []
         for symbol in request.symbols:
             if symbol not in symbols:
@@ -172,7 +172,4 @@ class AdviceCoordinatorAgent:
         for position in request.profile.current_positions:
             if position.symbol not in symbols:
                 symbols.append(position.symbol)
-        for bucket in allocation.buckets:
-            if bucket.instrument not in symbols:
-                symbols.append(bucket.instrument)
         return symbols

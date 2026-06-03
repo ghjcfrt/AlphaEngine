@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>AlphaEngine 工作台</title>
-    <link rel="stylesheet" href="/static/styles.css" />
+    <link rel="stylesheet" href="/static/styles.css?v=20260603-report-polish" />
   </head>
   <body>
     <div class="app-shell">
@@ -71,7 +71,15 @@
                 <path d="M4 4h16v16H4z" />
                 <path d="M8 8h8M8 12h8M8 16h5" />
               </svg>
-              示例
+              默认
+            </button>
+            <button class="ghost-button" id="exportResult" type="button" disabled>
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M12 3v12" />
+                <path d="m7 10 5 5 5-5" />
+                <path d="M5 21h14" />
+              </svg>
+              导出报告
             </button>
             <button class="primary-button" form="planForm" type="submit">
               <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -96,6 +104,16 @@
                   <input name="user_id" required value="demo-user" />
                 </label>
                 <label>
+                  <span>金额单位</span>
+                  <select name="amount_currency">
+                    <option value="CNY" selected>RMB</option>
+                    <option value="USD">USD</option>
+                    <option value="HKD">HKD</option>
+                    <option value="EUR">EUR</option>
+                    <option value="JPY">JPY</option>
+                  </select>
+                </label>
+                <label>
                   <span>年龄</span>
                   <input name="age" type="number" min="18" max="100" required value="32" />
                 </label>
@@ -109,7 +127,7 @@
                 </label>
                 <label>
                   <span>初始投资本金</span>
-                  <input name="initial_capital" type="number" min="1" step="1000" required value="200000" />
+                  <input name="initial_capital" type="number" min="1" step="1" required value="200000" />
                 </label>
                 <label>
                   <span>投资期限（年）</span>
@@ -153,7 +171,7 @@
               </div>
               <label class="full-field">
                 <span>关注标的</span>
-                <input name="symbols" value="600519.SH,000001.SZ,AAPL,MSFT,SPY" />
+                <input name="symbols" placeholder="可留空，多个标的用逗号分隔" />
               </label>
               <div class="positions-header">
                 <span class="field-title">已有持仓</span>
@@ -325,8 +343,8 @@
                   <option value="hybrid">hybrid</option>
                   <option value="finnhub">finnhub</option>
                   <option value="polygon">polygon</option>
+                  <option value="alphavantage">alphavantage</option>
                   <option value="eastmoney">eastmoney</option>
-                  <option value="mock">mock</option>
                 </select>
               </label>
               <div class="market-key-field">
@@ -349,6 +367,21 @@
                   <span id="polygonKeyState">清除已保存的 Polygon API Key</span>
                 </label>
               </div>
+              <div class="market-key-field">
+                <label>
+                  <span>Alpha Vantage API Key</span>
+                  <input
+                    name="alpha_vantage_api_key"
+                    type="password"
+                    autocomplete="off"
+                    placeholder="留空则不修改"
+                  />
+                </label>
+                <label class="trace-toggle key-state-toggle">
+                  <input name="clear_alpha_vantage_api_key" type="checkbox" />
+                  <span id="alphaVantageKeyState">清除已保存的 Alpha Vantage API Key</span>
+                </label>
+              </div>
             </div>
           </div>
         </section>
@@ -360,6 +393,6 @@
       </form>
     </dialog>
 
-    <script src="/static/app.js" defer></script>
+    <script src="/static/app.js?v=20260603-report-polish" defer></script>
   </body>
 </html>

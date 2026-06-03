@@ -38,7 +38,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--port", type=int, default=DEFAULT_PORT, help="起始端口，默认 8000。")
     parser.add_argument(
         "--provider",
-        choices=["hybrid", "finnhub", "polygon", "eastmoney", "mock"],
+        choices=["hybrid", "finnhub", "polygon", "alphavantage", "eastmoney"],
         help="覆盖行情源；不指定时优先使用系统环境变量或 .env。",
     )
     parser.add_argument("--reload", action="store_true", help="开启 uvicorn 热重载。")
@@ -67,8 +67,8 @@ def apply_market_provider(args: argparse.Namespace, env: dict[str, str]) -> str:
         return env.get("ALPHA_MARKET_DATA_PROVIDER") or env.get("MARKET_DATA_PROVIDER") or "hybrid"
     if env_file_defines_market_provider(ROOT_DIR / ".env"):
         return "来自 .env"
-    env["ALPHA_MARKET_DATA_PROVIDER"] = "mock"
-    return "mock"
+    env["ALPHA_MARKET_DATA_PROVIDER"] = "hybrid"
+    return "hybrid"
 
 
 def port_is_available(host: str, port: int) -> bool:

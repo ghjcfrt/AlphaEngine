@@ -20,12 +20,12 @@ def test_env_file_defines_market_provider(tmp_path) -> None:
     assert start.env_file_defines_market_provider(env_file) is True
 
 
-def test_apply_market_provider_defaults_to_mock(monkeypatch, tmp_path) -> None:
+def test_apply_market_provider_defaults_to_hybrid(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(start, "ROOT_DIR", tmp_path)
     args = argparse.Namespace(provider=None)
     env: dict[str, str] = {}
 
     provider = start.apply_market_provider(args, env)
 
-    assert provider == "mock"
-    assert env["ALPHA_MARKET_DATA_PROVIDER"] == "mock"
+    assert provider == "hybrid"
+    assert env["ALPHA_MARKET_DATA_PROVIDER"] == "hybrid"

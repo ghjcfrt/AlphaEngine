@@ -9,7 +9,7 @@ AlphaEngine 是一个多 AI Agent 协作的智能投顾原型系统。它基于 
 - 多 Agent 协作：风险、配置、行情、收益、合规、总结解读分别由独立 Agent 完成。
 - 规则基线 + AI 复核：每个专业 Agent 先生成可审计规则结果，启用真实模型后再由模型复核和补充。
 - 可配置 AI 提供方：支持 OpenAI、Gemini、Anthropic、DeepSeek、OpenAI Chat 兼容接口，也支持 Mock 和 Disabled 模式。
-- 行情数据抽象：支持 Hybrid、Finnhub、Polygon、东方财富公开接口和 Mock 行情。
+- 行情数据抽象：支持 Hybrid、Finnhub、Polygon、Alpha Vantage 和东方财富公开接口。
 - 协作链路追踪：每次计划生成都会通过 `trace_id` 串联 request/result 消息，便于查看 Agent 协作过程。
 - 本地 Web 工作台：支持录入投资人画像、风险问卷、关注标的和已有持仓，并展示配置、收益、合规和 AI 解读结果。
 
@@ -51,7 +51,7 @@ AlphaEngine 是一个多 AI Agent 协作的智能投顾原型系统。它基于 
 - 后端：Python 3.12、FastAPI、Pydantic、httpx、WebSocket
 - 前端：HTML、CSS、JavaScript
 - AI 服务：OpenAI Responses、OpenAI Chat 兼容接口、Gemini Generate Content、Anthropic Messages、DeepSeek Chat Completions
-- 行情服务：Finnhub、Polygon、东方财富公开行情、Mock provider
+- 行情服务：Finnhub、Polygon、Alpha Vantage、东方财富公开行情
 - 测试：pytest、pytest-asyncio、httpx MockTransport
 
 ## 项目结构
@@ -81,7 +81,7 @@ copy .env.example .env
 python start.py
 ```
 
-`start.py` 会自动寻找可用端口并打开前端工作台。如果系统环境变量和 `.env` 都没有指定行情源，启动器会默认使用 `mock` 行情，方便本地直接体验。
+`start.py` 会自动寻找可用端口并打开前端工作台。如果系统环境变量和 `.env` 都没有指定行情源，启动器会默认使用 `hybrid` 行情。
 
 也可以手动启动服务：
 
@@ -110,7 +110,7 @@ uv run uvicorn app.main:app --reload
 默认行情 provider 是 `hybrid`：
 
 - A 股：`600519`、`600519.SH`、`000001.SZ` 会走东方财富公开行情接口，返回源标记为 `eastmoney-unofficial`。
-- 美股：`AAPL`、`MSFT`、`SPY` 会优先走 Finnhub；没有 Finnhub key 但有 Polygon key 时走 Polygon；都没有时回退到 `mock`。
+- 美股：`AAPL`、`MSFT`、`SPY` 会优先走 Finnhub；没有 Finnhub key 但有 Polygon key 时走 Polygon；再没有时会尝试 Alpha Vantage；都没有配置时，请求美股标的会返回配置错误。
 
 常用配置：
 
@@ -118,20 +118,18 @@ uv run uvicorn app.main:app --reload
 ALPHA_MARKET_DATA_PROVIDER=hybrid
 FINNHUB_API_KEY=replace-me
 POLYGON_API_KEY=replace-me
+ALPHA_VANTAGE_API_KEY=replace-me
 ```
 
-本地演示可使用：
-
-```powershell
-ALPHA_MARKET_DATA_PROVIDER=mock
-```
+也可以将 `ALPHA_MARKET_DATA_PROVIDER` 设置为 `alphavantage`，单独使用 Alpha Vantage 的 `GLOBAL_QUOTE` 快照接口。A 股常用输入如 `000001.SZ` 会被转换为 Alpha Vantage 使用的 `000001.SHZ` 查询格式，返回结果仍展示为 `000001.SZ`。
 
 ### AI 提供方
 
-默认 AI provider 是 `mock`，不会在未配置密钥时调用外部模型。
+默认 AI provider 是 `openai`，生成计划时会调用真实模型。未配置模型 API Key 时，应用仍可启动和打开配置页，但生成投资计划会返回配置错误。
 
 ```powershell
-ALPHA_AI_ADVISOR_PROVIDER=mock
+ALPHA_AI_ADVISOR_PROVIDER=OpenAI
+OPENAI_API_KEY=replace-me
 ```
 
 启用真实模型时可选择：
@@ -207,7 +205,7 @@ uv run pytest
 
 - Agent 协作流程与 ACP trace
 - OpenAI、OpenAI 兼容、Gemini、Anthropic、DeepSeek provider 构建和请求格式
-- Finnhub、东方财富、Hybrid 和 Mock 行情 provider
+- Finnhub、Polygon、Alpha Vantage、东方财富和 Hybrid 行情 provider
 - 本地配置保存、密钥清除和每个 Agent 的模型配置
 - 前端静态页面和资源加载
 - `start.py` 行情源默认逻辑
@@ -215,6 +213,6 @@ uv run pytest
 ## 安全与限制
 
 - 东方财富公开行情源适合本地演示，稳定性和授权边界不能等同于交易所授权数据。
-- Finnhub、Polygon 和各大模型 API 的可用性取决于密钥、网络、额度和订阅权限。
-- Mock 行情和 Mock AI 只用于本地演示，不代表真实市场数据或模型推理。
+- Finnhub、Polygon、Alpha Vantage 和各大模型 API 的可用性取决于密钥、网络、额度和订阅权限。
+- 系统默认不生成 Mock 行情或 Mock AI 解读；行情、额度、密钥或模型接口异常会以错误形式返回。
 - 输出中出现的资产配置、收益情景和合规提示均为原型系统生成，不可作为真实交易依据。
